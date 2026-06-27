@@ -356,7 +356,7 @@ int qcom_wdt_pet_resume(struct device *dev)
 	if (wdog_data->wakeup_irq_enable) {
 		if (wdog_data->hibernate) {
 			wdog_data->ops->set_bark_time(wdog_data->bark_time, wdog_data);
-			wdog_data->ops->set_bite_time(wdog_data->bark_time + 3 * 1000, wdog_data);
+			wdog_data->ops->set_bite_time(wdog_data->bark_time + 10 * 1000, wdog_data);
 			val |= BIT(UNMASKED_INT_EN);
 			wdog_data->ops->enable_wdt(val, wdog_data);
 			wdog_data->enabled = true;
@@ -683,11 +683,13 @@ static __ref int qcom_wdt_kthread(void *arg)
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
 	while (!kthread_should_stop()) {
+		dev_info(wdog_data->dev, "wdt thread is going to S...\n");
 		do {
 			ret = wait_event_interruptible(wdog_dd->pet_complete,
 						wdog_dd->timer_expired);
 		} while (ret != 0);
 
+		dev_info(wdog_data->dev, "wdt thread is R again!\n");
 		wdog_dd->thread_start = sched_clock();
 		for_each_cpu(cpu, cpu_present_mask)
 			wdog_dd->ping_start[cpu] = wdog_dd->ping_end[cpu] = 0;
@@ -704,10 +706,13 @@ static __ref int qcom_wdt_kthread(void *arg)
 		wdog_dd->user_pet_complete = !wdog_dd->user_pet_enabled;
 
 		if (wdog_dd->enabled) {
+			dev_info(wdog_data->dev, "wdt thread is going to pet!\n");
 			delay_time = msecs_to_jiffies(wdog_dd->pet_time);
 			wdog_dd->ops->reset_wdt(wdog_dd);
 			wdog_dd->last_pet = sched_clock();
 		}
+
+		dev_info(wdog_data->dev, "wdt thread pet successfully!\n");
 		/* Check again before scheduling
 		 * Could have been changed on other cpu
 		 */
@@ -906,7 +911,7 @@ static int qcom_wdt_init(struct msm_watchdog_data *wdog_dd,
 	atomic_set(&wdog_dd->irq_counts_running, 0);
 	delay_time = msecs_to_jiffies(wdog_dd->pet_time);
 	wdog_dd->ops->set_bark_time(wdog_dd->bark_time, wdog_dd);
-	wdog_dd->ops->set_bite_time(wdog_dd->bark_time + 3 * 1000, wdog_dd);
+	wdog_dd->ops->set_bite_time(wdog_dd->bark_time + 10 * 1000, wdog_dd);
 	wdog_dd->panic_blk.priority = INT_MAX - 1;
 	wdog_dd->panic_blk.notifier_call = qcom_wdt_panic_handler;
 	atomic_notifier_chain_register(&panic_notifier_list,
@@ -969,8 +974,8 @@ static int qcom_wdt_init(struct msm_watchdog_data *wdog_dd,
 
 static void qcom_wdt_dump_pdata(struct msm_watchdog_data *pdata)
 {
-	dev_dbg(pdata->dev, "wdog bark_time %d", pdata->bark_time);
-	dev_dbg(pdata->dev, "wdog pet_time %d", pdata->pet_time);
+	dev_err(pdata->dev, "wdog bark_time %d", pdata->bark_time);
+	dev_err(pdata->dev, "wdog pet_time %d", pdata->pet_time);
 	dev_dbg(pdata->dev, "wdog perform ipi ping %d", pdata->do_ipi_ping);
 	dev_dbg(pdata->dev, "wdog base address is 0x%lx\n", (unsigned long)
 								pdata->base);
@@ -1011,9 +1016,9 @@ int qcom_wdt_register(struct platform_device *pdev,
 		return -EINVAL;
 	}
 
+	wdog_dd->dev = &pdev->dev;
 	qcom_wdt_dt_to_pdata(pdev, wdog_dd);
 	wdog_data = wdog_dd;
-	wdog_dd->dev = &pdev->dev;
 	platform_set_drvdata(pdev, wdog_dd);
 	cpumask_clear(&wdog_dd->alive_mask);
 	wdog_dd->watchdog_task = kthread_create(qcom_wdt_kthread, wdog_dd,

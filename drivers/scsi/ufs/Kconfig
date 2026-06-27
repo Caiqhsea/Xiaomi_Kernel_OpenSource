@@ -228,3 +228,10 @@ config SCSI_UFS_HWMON
 	  a hardware monitoring device will be created for the UFS device.
 
 	  If unsure, say N.
+
+config MI_UFS_MODULE
+	bool "MI ufs driver module"
+	depends on SCSI_UFS_QCOM
+	default y
+	help
+	  This selects the mi ufs driver. Deselect it if you update mainline.

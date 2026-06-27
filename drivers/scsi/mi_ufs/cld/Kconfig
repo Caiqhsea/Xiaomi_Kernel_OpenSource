@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Mi ufs cld
+#
+config MI_MEMORY_CLD
+	bool "Xiaomi UFS CLD"
+	depends on SCSI_UFS_QCOM
+	default y
+	help
+	  This adds support for Xiaomi CLD driver support.

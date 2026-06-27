@@ -24,10 +24,14 @@
 #include <linux/slab.h>
 #include <linux/spmi.h>
 #include <linux/suspend.h>
+#include <linux/nmi.h>
+#include <linux/sched/debug.h>
 #include <linux/input/qpnp-power-on.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
+#include <linux/sched.h>
+#include <linux/kthread.h>
 
 #define PMIC_VER_8941				0x01
 #define PMIC_VERSION_REG			0x0105
@@ -42,6 +46,8 @@
 #define PON_GEN2_SECONDARY			0x05
 #define PON_GEN3_PBS				0x08
 #define PON_GEN3_HLOS				0x09
+
+#define PMIC_PWRKEY_BARK_TRIGGER 1
 
 enum qpnp_pon_version {
 	QPNP_PON_GEN1_V1,
@@ -132,6 +138,8 @@ enum qpnp_pon_version {
 #define QPNP_PON_KPDPWR_RESIN_BARK_N_SET	BIT(5)
 #define QPNP_PON_GEN3_RESIN_N_SET		BIT(6)
 #define QPNP_PON_GEN3_KPDPWR_N_SET		BIT(7)
+#define QPNP_PON_KPDPWR_RESIN_N_SET		(QPNP_PON_KPDPWR_N_SET | \
+							QPNP_PON_RESIN_N_SET)
 
 #define QPNP_PON_WD_EN				BIT(7)
 #define QPNP_PON_RESET_EN			BIT(7)
@@ -167,6 +175,7 @@ enum qpnp_pon_version {
 #define QPNP_PON_BUFFER_SIZE			9
 
 #define QPNP_POFF_REASON_UVLO			13
+#define QPNP_PON_KPDPWR_RESIN_RESET_TIME		400
 
 enum pon_type {
 	PON_KPDPWR	 = PON_POWER_ON_TYPE_KPDPWR,
@@ -217,6 +226,8 @@ struct qpnp_pon {
 	struct list_head	list;
 	struct mutex		restore_lock;
 	struct delayed_work	bark_work;
+	struct delayed_work	collect_d_work;
+	bool			collect_d_in_progress;
 	struct dentry		*debugfs;
 	u16			base;
 	u16			pbs_base;
@@ -252,6 +263,8 @@ static struct qpnp_pon *sys_reset_dev;
 static struct qpnp_pon *modem_reset_dev;
 static DEFINE_SPINLOCK(spon_list_slock);
 static LIST_HEAD(spon_dev_list);
+static u32 comb_reset_time;
+static bool comb_reset_enable;
 
 static u32 s1_delay[PON_S1_COUNT_MAX + 1] = {
 	0, 32, 56, 80, 138, 184, 272, 408, 608, 904, 1352, 2048, 3072, 4480,
@@ -318,6 +331,16 @@ static const char * const qpnp_poff_reason[] = {
 	[38] = "Triggered from S3_RESET_PBS_NACK",
 	[39] = "Triggered from S3_RESET_KPDPWR_ANDOR_RESIN",
 };
+
+typedef int (*mi_display_pwrkey_callback)(int);
+mi_display_pwrkey_callback mi_display_pwrkey_cb = NULL;
+void mi_display_pwrkey_callback_set(mi_display_pwrkey_callback cb)
+{
+	mi_display_pwrkey_cb = cb;
+	printk(KERN_INFO "%s: func %pF is set.\n", __func__, cb);
+	return;
+}
+EXPORT_SYMBOL(mi_display_pwrkey_callback_set);
 
 static int qpnp_pon_store_reg(struct qpnp_pon *pon, u16 addr)
 {
@@ -1029,6 +1052,18 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	default:
 		return -EINVAL;
 	}
+	if (comb_reset_enable == true) {
+		if (((pon_rt_sts & QPNP_PON_KPDPWR_RESIN_N_SET) == QPNP_PON_KPDPWR_RESIN_N_SET) && (pon->collect_d_in_progress == false) &&
+			(cfg->key_code == KEY_POWER || cfg->key_code == KEY_VOLUMEDOWN)) {
+			pon->collect_d_in_progress = true;
+			schedule_delayed_work(&pon->collect_d_work,
+							msecs_to_jiffies(comb_reset_time - QPNP_PON_KPDPWR_RESIN_RESET_TIME));
+		} else if ((pon->collect_d_in_progress == true) && ((pon_rt_sts & QPNP_PON_KPDPWR_RESIN_N_SET) != QPNP_PON_KPDPWR_RESIN_N_SET) &&
+			(cfg->key_code == KEY_POWER || cfg->key_code == KEY_VOLUMEDOWN)) {
+			cancel_delayed_work(&pon->collect_d_work);
+			pon->collect_d_in_progress = false;
+		}
+	}
 
 	pr_debug("PMIC input: code=%d, status=0x%02X\n", cfg->key_code,
 		pon_rt_sts);
@@ -1056,6 +1091,58 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	return 0;
 }
 
+void show_state_filter_single(unsigned long state_filter)
+{
+	struct task_struct *g, *p;
+
+#if BITS_PER_LONG == 32
+	printk("  task 32 PC stack   pid father\n");
+#else
+	printk("  task PC stack   pid father\n");
+#endif
+	rcu_read_lock();
+	for_each_process_thread(g, p) {
+		/*
+		 * reset the NMI-timeout, listing all files on a slow
+		 * console might take a lot of time:
+		 * Also, reset softlockup watchdogs on all CPUs, because
+		 * another CPU might be blocked waiting for us to process
+		 * an IPI.
+		 */
+		touch_nmi_watchdog();
+		//touch_all_softlockup_watchdogs();
+		if (p->__state == state_filter)
+			sched_show_task(p);
+	}
+	rcu_read_unlock();
+}
+
+static void collect_d_work_func(struct work_struct *work)
+{
+	int rc;
+	int tmp_console = console_loglevel;
+	uint pon_rt_sts = 0;
+	struct qpnp_pon *pon =
+		container_of(work, struct qpnp_pon, collect_d_work.work);
+	/* check the RT status to get the current status of the line */
+	rc = regmap_read(pon->regmap, QPNP_PON_RT_STS(pon), &pon_rt_sts);
+	if (rc) {
+		dev_err(pon->dev, "Unable to read PON RT status\n");
+		goto err_return;
+	}
+	if ((pon_rt_sts & QPNP_PON_KPDPWR_RESIN_N_SET) == QPNP_PON_KPDPWR_RESIN_N_SET) {
+		console_verbose();
+		pr_info("------ collect D&R-state processes info before long comb key ------\n");
+		show_state_filter_single(TASK_UNINTERRUPTIBLE);
+		show_state_filter_single(TASK_RUNNING);
+		pr_info("------ end collecting D&R-state processes info ------\n");
+		console_loglevel = tmp_console;
+	}
+err_return:
+	pon->collect_d_in_progress = false;
+	return;
+}
+
 static irqreturn_t qpnp_kpdpwr_irq(int irq, void *_pon)
 {
 	int rc;
@@ -1070,6 +1157,11 @@ static irqreturn_t qpnp_kpdpwr_irq(int irq, void *_pon)
 
 static irqreturn_t qpnp_kpdpwr_bark_irq(int irq, void *_pon)
 {
+	if(mi_display_pwrkey_cb != NULL){
+		//dev_err(pon_s->dev,"%s: mi_display_pwrkey_cb \n", __func__);
+		mi_display_pwrkey_cb(PMIC_PWRKEY_BARK_TRIGGER);
+	}
+
 	return IRQ_HANDLED;
 }
 
@@ -1726,6 +1818,11 @@ static int qpnp_pon_config_init(struct qpnp_pon *pon,
 		if (rc)
 			return rc;
 
+		if (cfg->pon_type == PON_KPDPWR_RESIN) {
+			comb_reset_time = cfg->s1_timer + cfg->s2_timer;
+			comb_reset_enable = true;
+		}
+
 		/*
 		 * Get the standard key parameters. This might not be
 		 * specified if there is no key mapping on the reset line.
@@ -2345,6 +2442,98 @@ static int qpnp_pon_parse_dt_power_off_config(struct qpnp_pon *pon)
 	return 0;
 }
 
+struct task_struct *pon_thrd;
+
+static unsigned int lc_get_power_key_status(struct qpnp_pon *pon)
+{
+	int rc;
+	uint pon_rt_sts;
+
+	rc = qpnp_pon_read(pon, QPNP_PON_RT_STS(pon), &pon_rt_sts);
+	if (rc)
+	{
+		dev_err(pon->dev, "read key statys failed.\n");
+		return IRQ_HANDLED;
+	}
+
+	pon_rt_sts &= QPNP_PON_KPDPWR_N_SET;
+	dev_err(pon->dev, "key status = 0x%x\n", pon_rt_sts);
+
+	return pon_rt_sts;
+}
+
+static void lc_pon_enable_hard_reset(struct qpnp_pon *pon)
+{
+	// pwrkey->pon_pbs_baseaddr = 0x800
+	regmap_write(pon->regmap, QPNP_PON_KPDPWR_S1_TIMER(pon), 0xF);  // s1 timer to 10.256s
+	regmap_write(pon->regmap, QPNP_PON_KPDPWR_S2_TIMER(pon), 0x7);  // s2 timer to 2s
+	regmap_write(pon->regmap, QPNP_PON_KPDPWR_S2_CNTL(pon), 0x7);  // power key to hard reset
+	regmap_write(pon->regmap, QPNP_PON_KPDPWR_S2_CNTL2(pon), 0x80); // enable hard reset
+
+	dev_err(pon->dev, "lc_pon_enable_hard_reset OKAY.\n");
+}
+
+static void lc_pon_disable_hard_reset(struct qpnp_pon *pon)
+{
+	// pwrkey->pon_pbs_baseaddr = 0x800
+	regmap_write(pon->regmap, QPNP_PON_KPDPWR_S2_CNTL2(pon), 0); // disable hard reset
+
+	dev_err(pon->dev, "lc_pon_disable_hard_reset OKAY.\n");
+}
+
+static int pwrkey_set_pon_registers_thread(void *data)
+{
+	struct qpnp_pon *pon = data;
+
+	dev_err(pon->dev, "pwrkey_set_pon_registers_thread().\n");
+
+	while (1)
+	{
+		schedule_timeout_interruptible(500);	// about 2 second
+
+		if (!lc_get_power_key_status(pon))	// not press
+		{
+			lc_pon_enable_hard_reset(pon);
+
+			dev_err(pon->dev, "start stop pon_thrd kthread.\n");
+
+			kthread_stop(pon_thrd);
+		}
+	}
+
+	return 0;
+}
+
+static int pwrkey_set_pon_reset_type(struct qpnp_pon *pon)
+{
+	uint pon_rt_sts;
+
+	dev_err(pon->dev, "pwrkey_set_pon_reset_type()\n");
+
+	pon_rt_sts = lc_get_power_key_status(pon);
+
+	if (!pon_rt_sts)	// not press
+	{
+		lc_pon_enable_hard_reset(pon);
+	}
+	else				// press. unlikely
+	{
+		lc_pon_disable_hard_reset(pon);
+
+		/* create and run update thread */
+		pon_thrd = kthread_run(pwrkey_set_pon_registers_thread, pon, "set_pon_registers");
+		if (IS_ERR(pon_thrd))
+		{
+			dev_err(pon->dev, "Failed to create pon thread, error code is %ld", PTR_ERR(pon_thrd));
+			return PTR_ERR(pon_thrd);
+		}
+
+		dev_err(pon->dev, "success create pon thread.\n");
+	}
+
+	return 0;
+}
+
 static int qpnp_pon_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -2426,6 +2615,8 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, pon);
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
+	pon->collect_d_in_progress = false;
+	INIT_DELAYED_WORK(&pon->collect_d_work, collect_d_work_func);
 
 	rc = qpnp_pon_parse_dt_power_off_config(pon);
 	if (rc)
@@ -2480,6 +2671,8 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 		return rc;
 	}
 
+	pwrkey_set_pon_reset_type(pon);
+
 	if (sys_reset)
 		sys_reset_dev = pon;
 	if (modem_reset)
@@ -2498,6 +2691,7 @@ static int qpnp_pon_remove(struct platform_device *pdev)
 	device_remove_file(&pdev->dev, &dev_attr_debounce_us);
 
 	cancel_delayed_work_sync(&pon->bark_work);
+	cancel_delayed_work_sync(&pon->collect_d_work);
 
 	qpnp_pon_debugfs_remove(pon);
 	if (pon->is_spon) {

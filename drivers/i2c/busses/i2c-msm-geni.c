@@ -27,6 +27,8 @@
 #include <linux/sched/clock.h>
 #include <linux/slab.h>
 #include <soc/qcom/boot_stats.h>
+#include <linux/gpio/consumer.h>
+#include <linux/gpio.h>
 
 #define SE_GENI_TEST_BUS_CTRL	0x44
 #define SE_NUM_FOR_TEST_BUS	5
@@ -225,6 +227,7 @@ struct geni_i2c_dev {
 	atomic_t is_xfer_in_progress; /* Used to maintain xfer inprogress status */
 	bool is_deep_sleep; /* For deep sleep restore the config similar to the probe. */
 	bool i2c_test_dev; /* Set this DT flag to enable test bus dump for an SE */
+	bool se2_enable_recovery;
 };
 
 static struct geni_i2c_dev *gi2c_dev_dbg[MAX_SE];
@@ -1972,6 +1975,55 @@ geni_i2c_gsi_xfer_out:
 	return ret;
 }
 
+/* how to get gpio NUM
+   adb shell "cat d/gpio"
+   --- gpiochip4: GPIOs 398-511, parent: platform/400000.pinctrl, 400000.pinctrl:
+   --- gpio0  : out high func1 2mA pull up
+   --- gpio1  : out high func1 2mA pull up
+*/
+#define GPIO0_BASE_NUM 398
+#define GPIO6_SDA_NUM (GPIO0_BASE_NUM + 6) // 398 + 6
+#define GPIO7_SCL_NUM (GPIO0_BASE_NUM + 7) // 398 + 7
+
+static void force_i2c2_scl(struct geni_i2c_dev *gi2c)
+{
+        struct pinctrl *p;
+        int i, ret;
+        p = devm_pinctrl_get_select(gi2c->dev, "sleep");
+        if (IS_ERR(p)) {
+                dev_err(gi2c->dev, "%s pinctrl_get fail ret = %d\n",
+                                __func__, PTR_ERR(p));
+        }
+        ret = gpio_request(GPIO7_SCL_NUM, "i2c_scl");
+        ret |= gpio_request(GPIO6_SDA_NUM, "i2c_sda");
+        if (ret < 0) {
+                pr_err("%s failed to request i2c scl/sda gpio\n", __func__);
+        }
+        gpio_direction_input(GPIO6_SDA_NUM);
+        for (i = 0; i < 10; i++) {
+                gpio_direction_output(GPIO7_SCL_NUM, 1);
+                udelay(5);
+                if (gpio_get_value(GPIO6_SDA_NUM) == 1) {
+                        pr_err("%s driver sda successful, cnt = %d\n", __func__, i);
+                        goto out;
+                }
+                gpio_direction_output(GPIO7_SCL_NUM, 0);
+                udelay(5);
+        }
+        pr_err("%s failed to recovery i2c\n", __func__);
+out:
+        gpio_direction_output(GPIO6_SDA_NUM, 1);
+        gpio_direction_output(GPIO7_SCL_NUM, 1);
+        udelay(1);
+        gpio_free(GPIO6_SDA_NUM);
+        gpio_free(GPIO7_SCL_NUM);
+        p = devm_pinctrl_get_select(gi2c->dev, "default");
+        if (IS_ERR(p)) {
+                dev_err(gi2c->dev, "%s pinctrl_get fail ret = %d\n",
+                                __func__, PTR_ERR(p));
+        }
+}
+
 static int geni_i2c_xfer(struct i2c_adapter *adap,
 			 struct i2c_msg msgs[],
 			 int num)
@@ -2022,8 +2074,13 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 
 	geni_ios = geni_read_reg(gi2c->base, SE_GENI_IOS);
 	if ((geni_ios & 0x3) != 0x3) { //SCL:b'1, SDA:b'0
-		I2C_LOG_ERR(gi2c->ipcl, false, gi2c->dev,
+		I2C_LOG_ERR(gi2c->ipcl, true, gi2c->dev,
 			    "IO lines in bad state, Power the slave\n");
+
+		if (gi2c->se2_enable_recovery) {
+			force_i2c2_scl(gi2c);
+		}
+
 		/* for levm skip auto suspend timer */
 		if (!gi2c->is_le_vm) {
 			pm_runtime_mark_last_busy(gi2c->dev);
@@ -2179,7 +2236,7 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 		/* Ensure FIFO write go through before waiting for Done evet */
 		mb();
 		timeout = wait_for_completion_timeout(&gi2c->xfer,
-						gi2c->xfer_timeout);
+						(gi2c->xfer_timeout * 5));
 		if (!timeout) {
 			u32 geni_ios = 0;
 			u32 m_stat = readl_relaxed(gi2c->base + SE_GENI_M_IRQ_STATUS);
@@ -2435,6 +2492,12 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		return -EINVAL;
+
+	if (res->start == 0x4a88000) {
+		gi2c->se2_enable_recovery = true;
+		pr_err("enable_recovery is set at address 0x%x\n",
+				res->start);
+	}
 
 	gi2c->base = devm_ioremap_resource(gi2c->dev, res);
 	if (IS_ERR(gi2c->base))

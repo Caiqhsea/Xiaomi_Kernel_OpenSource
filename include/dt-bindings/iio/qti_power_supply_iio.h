@@ -186,4 +186,9 @@
 #define PSY_IIO_COOL_TEMP			0x8f
 #define PSY_IIO_WARM_TEMP			0x90
 #define PSY_IIO_FG_RESET_CLOCK			0x92
+
+// for sm5602 fg
+#define PSY_IIO_FG_MONITOR_WORK			0xb0
+#define PSY_IIO_BATT_ID				0xb1
+
 #endif /* __QTI_POWER_SUPPLY_IIO_H__ */

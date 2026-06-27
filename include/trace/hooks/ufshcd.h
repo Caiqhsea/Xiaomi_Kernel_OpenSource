@@ -10,7 +10,7 @@
  * mechanism for vendor modules to hook and extend functionality
  */
 #ifdef __GENKSYMS__
-#include <../drivers/scsi/ufs/ufshcd.h>
+#include <../drivers/scsi/mi_ufs/mi_ufshcd.h>
 #include <linux/blkdev.h>
 #include <scsi/scsi_device.h>
 #endif

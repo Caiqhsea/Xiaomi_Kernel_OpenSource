@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Mi ufs wb_check
+#
+config UFS_WB_CHECK
+	bool "UFS WB CHECK"
+	depends on SCSI_UFS_QCOM
+	default y
+	help
+	  Kernel configuration file for UFS WB feature

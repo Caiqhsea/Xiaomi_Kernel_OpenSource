@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * All rights reserved.
+ * Confidential and Proprietary - Qualcomm Technologies, Inc.
  */
 
 #define DRIVER_NAME "msm_sharedmem"
@@ -209,8 +212,12 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 
 		shared_mem = dma_alloc_coherent(&pdev->dev, shared_mem_tot_sz,
 					&shared_mem_pyhsical, GFP_KERNEL);
-		if (shared_mem == NULL)
-			return -ENOMEM;
+		/*begin lct for BUGP85X-1548 modem crash CR#4008951 at 20260317 */
+		if (shared_mem == NULL) {
+			pr_err_ratelimited("shared mem allocation failed..deferring probe\n");
+			return -EPROBE_DEFER;
+		}
+		/*end lct for BUGP85X-1548 modem crash CR#4008951 at 20260317 */
 		if (guard_memory)
 			shared_mem_pyhsical += SZ_4K;
 	}

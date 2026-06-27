@@ -17,6 +17,22 @@ obj-$(CONFIG_SCSI_UFS_DWC_TC_PLATFORM) += tc-dwc-g210-pltfrm.o ufshcd-dwc.o tc-d
 obj-$(CONFIG_SCSI_UFS_CDNS_PLATFORM) += cdns-pltfrm.o
 obj-$(CONFIG_SCSI_UFS_QCOM) += ufs_qcom.o
 ufs_qcom-y += ufs-qcom.o
+ifeq ($(CONFIG_MI_UFS_MODULE),y)
+ufs_qcom-$(CONFIG_MI_UFS_MODULE) += ../mi_ufs/mi_ufshcd-pltfrm.o \
+				../mi_ufs/mi_ufshcd.o ../mi_ufs/mi_ufs-sysfs.o
+ufs_qcom-$(CONFIG_MI_MEMORY_CLD)+= ../mi_ufs/cld/ufscld.o \
+				../mi_ufs/cld/ufscld_sysfs.o \
+				../mi_ufs/cld/samsung.o \
+				../mi_ufs/cld/hg_cld.o \
+				../mi_ufs/cld/ymtc_cld.o\
+				../mi_ufs/cld/skhynix_cld.o
+ufs_qcom-$(CONFIG_UFS_WB_CHECK)  += ../mi_ufs/wb_check/mi_wb_check.o
+ufs_qcom-$(CONFIG_MI_UFS_FFU)      += ../mi_ufs/mi_ffu/ufs_ffu.o
+ufs_qcom-$(CONFIG_DEBUG_FS)        += ../mi_ufs/mi_ufs-debugfs.o
+ufs_qcom-$(CONFIG_SCSI_UFS_BSG)    += ../mi_ufs/mi_ufs_bsg.o
+ufs_qcom-$(CONFIG_SCSI_UFS_CRYPTO) += ../mi_ufs/mi_ufshcd-crypto.o
+ufs_qcom-$(CONFIG_SCSI_UFS_HPB)    += ../mi_ufs/mi_ufshpb.o
+endif
 ufs_qcom-$(CONFIG_SCSI_UFS_CRYPTO) += ufs-qcom-ice.o
 obj-$(CONFIG_SCSI_UFS_EXYNOS) += ufs-exynos.o
 obj-$(CONFIG_SCSI_UFSHCD_PCI) += ufshcd-pci.o

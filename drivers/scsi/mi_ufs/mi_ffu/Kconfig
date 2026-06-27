@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Mi ufs ffu
+#
+config MI_UFS_FFU
+	bool "Xiaomi kernel FFU"
+	depends on SCSI_UFS_QCOM
+	default y
+	help
+	  This adds support for Xiaomi FFU driver support.

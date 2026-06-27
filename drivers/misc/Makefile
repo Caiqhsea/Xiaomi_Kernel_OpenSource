@@ -3,6 +3,7 @@
 # Makefile for misc devices that really don't fit anywhere else.
 #
 
+obj-$(CONFIG_SIMTRAY_STATUS)	+= simtray/
 obj-$(CONFIG_IBM_ASM)		+= ibmasm/
 obj-$(CONFIG_IBMVMC)		+= ibmvmc.o
 obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
@@ -53,6 +54,7 @@ obj-$(CONFIG_PCI_ENDPOINT_TEST)	+= pci_endpoint_test.o
 obj-$(CONFIG_OCXL)		+= ocxl/
 obj-$(CONFIG_BCM_VK)		+= bcm-vk/
 obj-y				+= cardreader/
+obj-$(CONFIG_PERF_HELPER)      += perf_helper.o
 obj-$(CONFIG_PVPANIC)   	+= pvpanic/
 obj-$(CONFIG_HABANA_AI)		+= habanalabs/
 obj-$(CONFIG_UACCE)		+= uacce/
@@ -66,3 +68,4 @@ obj-$(CONFIG_QPNP_MISC)		+= qpnp-misc.o
 obj-$(CONFIG_PROFILER)		+= profiler.o
 obj-$(CONFIG_QRC)		+= qrc/
 obj-$(CONFIG_HDMI_INPUT_MUX)	+= hdmi_input_mux.o
+obj-$(CONFIG_MIEV)              += miev/
