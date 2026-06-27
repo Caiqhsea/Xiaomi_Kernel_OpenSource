@@ -1,0 +1,42 @@
+#SPDX-License-Identifier: GPL-2.0
+
+config LC_CHARGER_MANAGER
+	tristate "support lc charger manger"
+	default n
+	help
+		Say Y here to support lc charger manger.
+
+config LC_CHARGER_MANAGER
+	tristate "support lc battery secret"
+	depends on LC_BATTERY_SECRET
+	help
+		Say Y here to support lc battery secret.
+
+config LC_CP_POLICY
+	tristate "support lc charger pump policy"
+	default n
+	help
+		Say Y here to support lc charger class.
+
+config LC_PD_POLICY
+	tristate "support lc pd policy"
+	default n
+	help
+		Say Y here to support lc charger class.
+
+config LC_QC_POLICY
+	tristate "support lc qc policy"
+	default n
+	help
+		Say Y here to support lc charger class.
+
+config XM_DFX_CHARGER
+	tristate "support dfs Charger"
+	default n
+	help
+		Say Y here to support dfs Charger.
+config LC_REPLENISH
+	tristate "support lc replenish"
+	default n
+	help
+		Say Y here to support lc charger class.

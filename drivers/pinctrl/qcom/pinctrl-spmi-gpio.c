@@ -24,6 +24,9 @@
 #include "../core.h"
 #include "../pinctrl-utils.h"
 
+#define PMIC_GPIO6_BASE 0xC500
+#define PMIC_GPIO_REG_EN_CTL 0x46
+
 #define PMIC_GPIO_ADDRESS_RANGE			0x100
 
 /* type and subtype registers base address offsets */
@@ -722,6 +725,26 @@ static int pmic_gpio_direction_output(struct gpio_chip *chip,
 	return pmic_gpio_config_set(state->ctrl, pin, &config, 1);
 }
 
+static void pmic_gpio_force_disable(struct pmic_gpio_state *state)
+{
+    int ret;
+	unsigned int val;
+    struct pmic_gpio_pad pad = {
+        .base = PMIC_GPIO6_BASE
+    };
+
+    ret = regmap_write(state->map,pad.base + PMIC_GPIO_REG_EN_CTL,0x00);
+    if (ret) {
+        dev_err(state->dev, "Failed to force disable GPIO6: %d\n", ret);
+    } else {
+        dev_info(state->dev, "GPIO6 forced to high-Z: EN_CTL=0x00\n");
+        regmap_read(state->map, pad.base + PMIC_GPIO_REG_EN_CTL, &val);
+        if (val != 0) {
+            dev_err(state->dev, "GPIO6 verify failed! Reg:0x%x\n", val);
+        }
+    }
+}
+
 static int pmic_gpio_get(struct gpio_chip *chip, unsigned pin)
 {
 	struct pmic_gpio_state *state = gpiochip_get_data(chip);
@@ -1158,6 +1181,8 @@ static int pmic_gpio_probe(struct platform_device *pdev)
 	girq->populate_parent_alloc_arg = pmic_gpio_populate_parent_fwspec;
 	girq->child_offset_to_irq = pmic_gpio_child_offset_to_irq;
 	girq->child_irq_domain_ops.translate = pmic_gpio_domain_translate;
+
+	pmic_gpio_force_disable(state);
 
 	ret = gpiochip_add_data(&state->chip, state);
 	if (ret) {

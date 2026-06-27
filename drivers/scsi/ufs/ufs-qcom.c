@@ -27,16 +27,27 @@
 #include <soc/qcom/minidump.h>
 #include <linux/nvmem-consumer.h>
 
-#include "ufshcd.h"
+#ifdef CONFIG_MI_UFS_MODULE
+#include "../mi_ufs/mi_ufshcd-pltfrm.h"
+#include "../mi_ufs/mi_unipro.h"
+#include "../mi_ufs/mi_ufshcd.h"
+#else
 #include "ufshcd-pltfrm.h"
 #include "unipro.h"
+#include "ufshcd.h"
+#endif // CONFIG_MI_UFS_MODULE
 #include "ufs-qcom.h"
 
 #define CREATE_TRACE_POINTS
 #include "ufs-qcom-trace.h"
 
+#ifdef CONFIG_MI_UFS_MODULE
+#include "../mi_ufs/mi_ufshci.h"
+#include "../mi_ufs/mi_ufs_quirks.h"
+#else
 #include "ufshci.h"
 #include "ufs_quirks.h"
+#endif // CONFIG_MI_UFS_MODULE
 #include "ufshcd-crypto-qti.h"
 #if IS_ENABLED(CONFIG_QTI_CRYPTO_FDE)
 #include <linux/crypto-qti-common.h>
@@ -2513,7 +2524,6 @@ static void ufs_qcom_set_caps(struct ufs_hba *hba)
 	if (!host->disable_lpm) {
 		hba->caps |= UFSHCD_CAP_CLK_GATING |
 		UFSHCD_CAP_HIBERN8_WITH_CLK_GATING |
-		UFSHCD_CAP_CLK_SCALING |
 		UFSHCD_CAP_WB_WITH_CLK_SCALING |
 		UFSHCD_CAP_AUTO_BKOPS_SUSPEND;
 		if (!host->disable_wb_support)

@@ -9,8 +9,11 @@
 #include <linux/platform_device.h>
 #include <linux/qcom_scm.h>
 #include <linux/qtee_shmbridge.h>
-
+#ifdef CONFIG_MI_UFS_MODULE
+#include "../mi_ufs/mi_ufshcd-crypto.h"
+#else
 #include "ufshcd-crypto.h"
+#endif // CONFIG_MI_UFS_MODULE
 #include <linux/crypto-qti-common.h>
 #include "ufs-qcom.h"
 

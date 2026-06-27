@@ -138,6 +138,7 @@ define_db845c(
         "drivers/mfd/wcd934x.ko",
         "drivers/misc/fastrpc.ko",
         "drivers/mmc/host/cqhci.ko",
+        "drivers/misc/miev.ko",
         "drivers/mmc/host/sdhci-msm.ko",
         "drivers/net/can/spi/mcp251xfd/mcp251xfd.ko",
         "drivers/net/wireless/ath/ath.ko",
@@ -205,6 +206,7 @@ define_db845c(
         "drivers/spi/spi-qcom-qspi.ko",
         "drivers/spi/spi-qup.ko",
         "drivers/spmi/spmi-pmic-arb.ko",
+        "drivers/staging/binder_prio/binder_prio.ko",
         "drivers/thermal/qcom/lmh.ko",
         "drivers/thermal/qcom/qcom-spmi-adc-tm5.ko",
         "drivers/thermal/qcom/qcom-spmi-temp-alarm.ko",
@@ -248,5 +250,7 @@ define_db845c(
         "sound/soc/qcom/snd-soc-qcom-common.ko",
         "sound/soc/qcom/snd-soc-sdm845.ko",
         "sound/soc/qcom/snd-soc-sm8250.ko",
+        "drivers/usb/gadget/function/usb_f_rndis.ko",
+        "drivers/usb/gadget/function/usb_f_gsi.ko",
     ],
 )

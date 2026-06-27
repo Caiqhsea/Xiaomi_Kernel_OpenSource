@@ -508,4 +508,11 @@ config VIRTIO_EAVB
 	  means ethernet Audio Video Bridging. It provides unified ioctl
 	  interface for userspace. Say Y if you want to support virtual
 	  eavb.
+
+# ADD: Audio_Xlog
+config XLOGCHAR
+	tristate "xlogchar driver"
+	help
+	  Implements a high performance log driver
+
 endmenu

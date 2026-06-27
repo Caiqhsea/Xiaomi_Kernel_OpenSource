@@ -1,0 +1,13 @@
+#SPDX-License-Identifier: GPL-2.0
+
+config SM_FUELGAUGE
+	tristate "sm5602_fg fuelgauge"
+	default n
+	help
+		Say Y here to support sm5602_fg fuelgauge.
+
+config CHARGE_PARTITION
+	tristate "charge partition"
+    depends on SM_FUELGAUGE
+    help
+	  charge partition write/read in kernel
