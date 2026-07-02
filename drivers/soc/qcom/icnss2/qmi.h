@@ -260,5 +260,5 @@ void icnss_dms_deinit(struct icnss_priv *priv);
 int wlfw_subsys_restart_level_msg(struct icnss_priv *penv, uint8_t restart_level);
 int wlfw_cal_report_req(struct icnss_priv *priv);
 #endif
-
+const char *icnss_wlan_get_cmdline(void);
 #endif /* __ICNSS_QMI_H__*/

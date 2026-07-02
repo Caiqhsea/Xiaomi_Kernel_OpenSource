@@ -824,5 +824,6 @@ config CHARGER_BQ256XX
 	  cell Li-ion and Li-polymer batteries.
 
 source "drivers/power/supply/qcom/Kconfig"
+source "drivers/power/supply/battery_secret/Kconfig"
 
 endif # POWER_SUPPLY

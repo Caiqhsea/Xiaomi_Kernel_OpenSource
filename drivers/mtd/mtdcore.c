@@ -1255,7 +1255,11 @@ int mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 
 	*retlen = 0;
 	if (!master->_panic_write)
+	{
+		printk(KERN_ERR "KERN_ERR return -EOPNOTSUPP\n");
 		return -EOPNOTSUPP;
+	}
+
 	if (to < 0 || to >= mtd->size || len > mtd->size - to)
 		return -EINVAL;
 	if (!(mtd->flags & MTD_WRITEABLE))

@@ -31,6 +31,8 @@
 #include "qmi.h"
 #include "debug.h"
 #include "genl.h"
+#include <asm/setup.h>
+#include <linux/bootconfig.h>
 
 #define WLFW_SERVICE_WCN_INS_ID_V01	3
 #define WLFW_SERVICE_INS_ID_V01		0
@@ -77,6 +79,14 @@ void icnss_ignore_fw_timeout(bool ignore) { }
 	icnss_pr_err("fatal: "_fmt, ##__VA_ARGS__);	\
 	ICNSS_QMI_ASSERT();				\
 	} while (0)
+
+static char __platform_cmdline[2048];
+static char *command_line = __platform_cmdline;
+
+module_param_string(factorybuild, factorybuild, 16, 0644);
+module_param_string(hwname, hwname, 16, 0644);
+module_param_string(hwc, hwc, 16, 0644);
+module_param_string(hwarea, hwarea, 16, 0644);
 
 int wlfw_msa_mem_info_send_sync_msg(struct icnss_priv *priv)
 {
@@ -753,6 +763,11 @@ int wlfw_cap_send_sync_msg(struct icnss_priv *priv)
 
 	priv->stats.cap_resp++;
 
+	icnss_pr_info("priv->chip_info.chip_id=%d,resp->chip_info.chip_id=%d\n",priv->chip_info.chip_id,resp->chip_info.chip_id);
+	icnss_pr_info("priv->chip_info.chip_family=%d,resp->chip_info.chip_family=%d\n",priv->chip_info.chip_family,resp->chip_info.chip_family);
+	icnss_pr_info("resp->board_info_valid=%d\n",resp->board_info_valid);
+	icnss_pr_info("resp->soc_info_valid=%d\n",resp->soc_info_valid);
+	icnss_pr_info("resp->fw_version_info_valid=%d\n",resp->fw_version_info_valid);
 	if (resp->chip_info_valid) {
 		priv->chip_info.chip_id = resp->chip_info.chip_id;
 		priv->chip_info.chip_family = resp->chip_info.chip_family;
@@ -1006,6 +1021,36 @@ void icnss_dms_deinit(struct icnss_priv *priv)
 	qmi_handle_release(&priv->qmi_dms);
 }
 
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * get cmdline from bootargs
+*/
+/*----------------------------------------------------------------------------*/
+const char *icnss_wlan_get_cmdline(void)
+{
+	struct device_node *of_chosen = NULL;
+	char *bootargs = NULL;
+
+	if (__platform_cmdline[0] != 0) {
+		return command_line;
+	}
+	of_chosen = of_find_node_by_path("/chosen");
+	if (of_chosen) {
+		bootargs = (char *)of_get_property(
+					of_chosen, "bootargs", NULL);
+		if (!bootargs) {
+			icnss_pr_info("%s: failed to get bootargs\n", __func__);
+                }
+		else {
+			strcpy(__platform_cmdline, bootargs);
+		}
+	} else {
+		icnss_pr_info("%s: failed to get /chosen\n", __func__);
+	}
+	return command_line;
+}
+
 static int icnss_get_bdf_file_name(struct icnss_priv *priv,
 				   u32 bdf_type, char *filename,
 				   u32 filename_len)
@@ -1013,7 +1058,8 @@ static int icnss_get_bdf_file_name(struct icnss_priv *priv,
 	char filename_tmp[ICNSS_MAX_FILE_NAME];
 	char foundry_specific_filename[ICNSS_MAX_FILE_NAME];
 	int ret = 0;
-
+	char fname[ICNSS_MAX_FILE_NAME]={0};
+	icnss_pr_info("icnss_get_bdf_file_name bdf_type:%d\n",bdf_type);
 	switch (bdf_type) {
 	case ICNSS_BDF_ELF:
 		if (priv->board_id == 0xFF)
@@ -1062,6 +1108,184 @@ static int icnss_get_bdf_file_name(struct icnss_priv *priv,
 	if (!ret)
 		icnss_add_fw_prefix_name(priv, filename, filename_tmp);
 
+	icnss_pr_info("Default file_name:%s,filename_tmp:%s \n",filename,filename_tmp);
+	icnss_pr_info("Default hwname:%s,factorybuild:%s, hwc:%s,hwarea=%s \n",hwname,factorybuild,hwc,hwarea);
+
+	if (bdf_type == ICNSS_BDF_REGDB) {
+		icnss_wlan_get_cmdline();
+		if (strstr(hwname, "ruan")) {
+			memset(fname, 0, sizeof(filename));
+			strcpy(fname,"qca6750/regdb_6g.bin");
+			scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+			icnss_pr_info("Use support 6G regdb_6g.bin\n");
+		} else {
+			memset(fname, 0, sizeof(filename));
+			strcpy(fname,"qca6750/regdb.bin");
+			scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+			icnss_pr_info("Use default regdb.bin\n");
+		}
+	}
+
+	if (bdf_type == ICNSS_BDF_ELF) {
+		icnss_wlan_get_cmdline();
+		if (strstr(hwname, "dizi")) {
+			if (strstr(factorybuild, "1")) {
+				icnss_pr_info("Hwname:dizi,factorybuild\n");
+				if (strstr(hwc, "CN")) {
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83cnf.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use CN bdf\n");
+				} else if (strstr(hwc, "India")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83inf.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use India bdf\n");
+				} else if (strstr(hwc, "Japan")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83jpf.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use Japan bdf\n");
+				} else if (strstr(hwc, "Global")){
+					if(strstr(hwarea, "n83glce")){
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83cef.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use CE bdf\n");
+					} else if(strstr(hwarea, "n83glfcc") || strstr(hwarea, "n83pgl")){
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83fccf.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use FCC bdf\n");
+					} else{
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83fccf.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use FCC bdf\n");
+					}
+				} else {
+					icnss_pr_info("Hwname=dizi,unknow hwc,use default bdf\n");
+				}
+			} else {
+				icnss_pr_info("Hwname:dizi,not factorybuild\n");
+				if (strstr(hwc, "CN")) {
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83cn.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use CN bdf\n");
+				} else if (strstr(hwc, "India")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83in.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use India bdf\n");
+				} else if (strstr(hwc, "Japan")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83jp.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use Japan bdf\n");
+				} else if (strstr(hwc, "Global")){
+					if(strstr(hwarea, "n83glce")){
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83ce.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use CE bdf\n");
+					} else if(strstr(hwarea, "n83glfcc") || strstr(hwarea, "n83pgl")) {
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83fcc.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use FCC bdf\n");
+					} else{
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83fcc.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use FCC bdf\n");
+					}
+				} else {
+					icnss_pr_info("Hwname=dizi,unknow hwc,use default bdf\n");
+				}
+			}
+		} else if (strstr(hwname, "ruan")) {
+			if (strstr(factorybuild, "1")) {
+				icnss_pr_info("Hwname:ruan,factorybuild\n");
+				if (strstr(hwc, "CN")) {
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83ucnf.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use CN bdf\n");
+				} else if (strstr(hwc, "India")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83uinf.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use India bdf\n");
+				} else if (strstr(hwc, "Japan")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83ujpf.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use Japan bdf\n");
+				} else if (strstr(hwc, "Global")){
+					if(strstr(hwarea, "n83uglce")){
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83ucef.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use CE bdf\n");
+					} else if(strstr(hwarea, "n83uglfcc")){
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83ufccf.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use FCC bdf\n");
+					}  else{
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83ufccf.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use Global bdf\n");
+					}
+				} else {
+					icnss_pr_info("Hwname=ruan,unknow hwc,Use default bdf\n");
+				}
+			} else {
+				icnss_pr_info("Hwname:ruan,not factorybuild\n");
+				if (strstr(hwc, "CN")) {
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83ucn.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use CN bdf\n");
+				} else if (strstr(hwc, "India")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83uin.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use India bdf\n");
+				} else if (strstr(hwc, "Japan")){
+					memset(fname, 0, sizeof(filename));
+					strcpy(fname,"qca6750/bd83ujp.elf");
+					scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+					icnss_pr_info("Use Japan bdf\n");
+				} else if (strstr(hwc, "Global")){
+					if(strstr(hwarea, "n83uglce")){
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83uce.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use CE bdf\n");
+					} else if(strstr(hwarea, "n83uglfcc")){
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83ufcc.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use FCC bdf\n");
+					} else{
+						memset(fname, 0, sizeof(filename));
+						strcpy(fname,"qca6750/bd83ufcc.elf");
+						scnprintf(filename, ICNSS_MAX_FILE_NAME, "%s", fname);
+						icnss_pr_info("Use FCC bdf\n");
+                                        }
+				} else {
+					icnss_pr_info("Hwname=ruan,unknow hwc,Use default bdf\n");
+				}
+			}
+		} else {
+			icnss_pr_info("Not match dizi or ruan,use default bdf\n");
+		}
+	}
+
+	icnss_pr_info("bdf_file_name:%s,file len:%d,file_type:%d \n",filename,filename_len,bdf_type);
 	return ret;
 }
 
@@ -1090,7 +1314,7 @@ int icnss_wlfw_bdf_dnld_send_sync(struct icnss_priv *priv, u32 bdf_type)
 	unsigned int remaining;
 	int ret = 0;
 
-	icnss_pr_dbg("Sending %s download message, state: 0x%lx, type: %d\n",
+	icnss_pr_info("Sending %s download message, state: 0x%lx, type: %d\n",
 		     icnss_bdf_type_to_str(bdf_type), priv->state, bdf_type);
 
 	req = kzalloc(sizeof(*req), GFP_KERNEL);
@@ -1118,7 +1342,7 @@ int icnss_wlfw_bdf_dnld_send_sync(struct icnss_priv *priv, u32 bdf_type)
 	temp = fw_entry->data;
 	remaining = fw_entry->size;
 
-	icnss_pr_dbg("Downloading %s: %s, size: %u\n",
+	icnss_pr_info("Downloading %s: %s, size: %u\n",
 		     icnss_bdf_type_to_str(bdf_type), filename, remaining);
 
 	while (remaining) {
@@ -3190,7 +3414,7 @@ int wlfw_host_cap_send_sync(struct icnss_priv *priv)
 	u64 iova_start = 0, iova_size = 0,
 	    iova_ipa_start = 0, iova_ipa_size = 0;
 
-	icnss_pr_dbg("Sending host capability message, state: 0x%lx\n",
+	icnss_pr_info("Sending host capability message, state: 0x%lx\n",
 		    priv->state);
 
 	req = kzalloc(sizeof(*req), GFP_KERNEL);
@@ -3211,7 +3435,7 @@ int wlfw_host_cap_send_sync(struct icnss_priv *priv)
 
 	req->cal_done_valid = 1;
 	req->cal_done = priv->cal_done;
-	icnss_pr_dbg("Calibration done is %d\n", priv->cal_done);
+	icnss_pr_info("Calibration done is %d\n", priv->cal_done);
 
 	if (priv->smmu_s1_enable &&
 	    !icnss_get_iova(priv, &iova_start, &iova_size) &&

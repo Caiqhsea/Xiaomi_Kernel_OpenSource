@@ -192,6 +192,9 @@ static int qcom_ipcc_mbox_send_data(struct mbox_chan *chan, void *data)
 						ipcc_mbox_chan->signal_id);
 	writel_no_log(packed_id, proto_data->base + IPCC_REG_SEND_ID);
 
+	/* Insert read action here to assure write fiished */
+	(void)readl_no_log(proto_data->base + IPCC_REG_RECV_ID);
+
 	return 0;
 }
 

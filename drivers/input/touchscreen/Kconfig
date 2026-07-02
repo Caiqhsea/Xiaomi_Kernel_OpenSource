@@ -1345,4 +1345,10 @@ source "drivers/input/touchscreen/nt36xxx/Kconfig"
 
 source "drivers/input/touchscreen/goodix_berlin_driver/Kconfig"
 
+source "drivers/input/touchscreen/nt36532_spi/Kconfig"
+
+source "drivers/input/touchscreen/lct_tp/Kconfig"
+
+source "drivers/input/touchscreen/xiaomi/Kconfig"
+
 endif

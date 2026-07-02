@@ -35,6 +35,10 @@
 #define ICNSS_ENABLE_M3_SSR 1
 
 extern uint64_t dynamic_feature_mask;
+static char factorybuild[16] = {0};
+static char hwname[16] = {0};
+static char hwc[16] = {0};
+static char hwarea[16] = {0};
 
 enum icnss_bdf_type {
 	ICNSS_BDF_BIN,
@@ -517,7 +521,7 @@ struct icnss_reg_info {
 	uint32_t reg_offset;
 	uint32_t data_len;
 };
-
+const char *wlan_get_cmdline(void);
 void icnss_free_qdss_mem(struct icnss_priv *priv);
 char *icnss_driver_event_to_str(enum icnss_driver_event_type type);
 int icnss_call_driver_uevent(struct icnss_priv *priv,

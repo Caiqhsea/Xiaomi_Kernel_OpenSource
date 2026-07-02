@@ -316,7 +316,7 @@ int qcom_wdt_pet_resume(struct device *dev)
 		return 0;
 
 	if (wdog_data->user_pet_enabled) {
-		delay_time = msecs_to_jiffies(wdog_data->bark_time + 3 * 1000);
+		delay_time = msecs_to_jiffies(wdog_data->bark_time + 10 * 1000);
 		wdog_data->user_pet_timer.expires = jiffies + delay_time;
 		add_timer(&wdog_data->user_pet_timer);
 	}
@@ -866,7 +866,7 @@ static int qcom_wdt_init(struct msm_watchdog_data *wdog_dd,
 	atomic_set(&wdog_dd->irq_counts_running, 0);
 	delay_time = msecs_to_jiffies(wdog_dd->pet_time);
 	wdog_dd->ops->set_bark_time(wdog_dd->bark_time, wdog_dd);
-	wdog_dd->ops->set_bite_time(wdog_dd->bark_time + 3 * 1000, wdog_dd);
+	wdog_dd->ops->set_bite_time(wdog_dd->bark_time + 10 * 1000, wdog_dd);
 	wdog_dd->panic_blk.priority = INT_MAX - 1;
 	wdog_dd->panic_blk.notifier_call = qcom_wdt_panic_handler;
 	atomic_notifier_chain_register(&panic_notifier_list,
@@ -929,8 +929,8 @@ static int qcom_wdt_init(struct msm_watchdog_data *wdog_dd,
 
 static void qcom_wdt_dump_pdata(struct msm_watchdog_data *pdata)
 {
-	dev_dbg(pdata->dev, "wdog bark_time %d", pdata->bark_time);
-	dev_dbg(pdata->dev, "wdog pet_time %d", pdata->pet_time);
+	dev_err(pdata->dev, "wdog bark_time %d", pdata->bark_time);
+	dev_err(pdata->dev, "wdog pet_time %d", pdata->pet_time);
 	dev_dbg(pdata->dev, "wdog perform ipi ping %d", pdata->do_ipi_ping);
 	dev_dbg(pdata->dev, "wdog base address is 0x%lx\n", (unsigned long)
 								pdata->base);

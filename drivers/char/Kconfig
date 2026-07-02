@@ -477,6 +477,12 @@ config MSM_RDBG
 	  stub running on peripheral subsystems such as the ADSP, MODEM etc.
 		Say M if you want to enable this module.
 
+config XLOGCHAR
+	tristate "xlogchar driver"
+	default m
+	help
+	  Implements a high performance log driver
+
 config ADI
 	tristate "SPARC Privileged ADI driver"
 	depends on SPARC64

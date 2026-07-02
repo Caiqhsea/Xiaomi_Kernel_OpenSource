@@ -131,6 +131,7 @@ static struct kobj_type reset_ktype = {
 static int panic_prep_restart(struct notifier_block *this,
 			      unsigned long event, void *ptr)
 {
+	update_panic_reboot_reason();
 	in_panic = 1;
 	return NOTIFY_DONE;
 }
@@ -380,7 +381,7 @@ static size_t store_dload_mode(struct kobject *kobj, struct attribute *attr,
 		pr_err("Supported dumps:'full', 'mini', or 'both'\n");
 		return -EINVAL;
 	}
-
+        pr_err("%s: dload_type=0x%x\n", __func__, dload_type);
 	mutex_lock(&tcsr_lock);
 	/*Overwrite TCSR reg*/
 	set_dload_mode(dload_type);
@@ -461,15 +462,18 @@ static void msm_restart_prepare(const char *cmd)
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
 		} else {
+			reason = PON_RESTART_REASON_NORMAL;
 			__raw_writel(0x77665501, restart_reason);
 		}
-
-		if (reason && nvmem_cell)
-			nvmem_cell_write(nvmem_cell, &reason, sizeof(reason));
-		else
-			qpnp_pon_set_restart_reason(
-				(enum pon_restart_reason)reason);
+	} else {
+		reason = PON_RESTART_REASON_NORMAL;
+		__raw_writel(0x77665501, restart_reason);
 	}
+	if (reason && nvmem_cell)
+		nvmem_cell_write(nvmem_cell, &reason, sizeof(reason));
+	else
+		qpnp_pon_set_restart_reason(
+			(enum pon_restart_reason)reason);
 
 	/*outer_flush_all is not supported by 64bit kernel*/
 #ifndef CONFIG_ARM64

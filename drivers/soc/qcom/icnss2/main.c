@@ -53,6 +53,8 @@
 #include "debug.h"
 #include "power.h"
 #include "genl.h"
+#include <asm/setup.h>
+#include <linux/bootconfig.h>
 
 #define MAX_PROP_SIZE			32
 #define NUM_LOG_PAGES			10
@@ -88,6 +90,9 @@ module_param(qmi_timeout, ulong, 0600);
 #define ICNSS_RECOVERY_TIMEOUT		60000
 #define ICNSS_WPSS_SSR_TIMEOUT          5000
 #define ICNSS_CAL_TIMEOUT		40000
+
+static char __platform_cmdline[2048];
+static char *command_line = __platform_cmdline;
 
 static struct icnss_priv *penv;
 static struct work_struct wpss_loader;
@@ -127,6 +132,35 @@ static const char * const icnss_pdr_cause[] = {
 	[ICNSS_ROOT_PD_SHUTDOWN] = "Root PD shutdown",
 	[ICNSS_HOST_ERROR] = "Host error",
 };
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * get cmdline from bootargs
+*/
+/*----------------------------------------------------------------------------*/
+const char *wlan_get_cmdline(void)
+{
+	struct device_node *of_chosen = NULL;
+	char *bootargs = NULL;
+
+	if (__platform_cmdline[0] != 0) {
+		return command_line;
+	}
+	of_chosen = of_find_node_by_path("/chosen");
+	if (of_chosen) {
+		bootargs = (char *)of_get_property(
+					of_chosen, "bootargs", NULL);
+		if (!bootargs) {
+			icnss_pr_err("%s: failed to get bootargs\n", __func__);
+                }
+		else {
+			strcpy(__platform_cmdline, bootargs);
+		}
+	} else {
+		icnss_pr_err("%s: failed to get /chosen\n", __func__);
+	}
+	return command_line;
+}
 
 static void icnss_set_plat_priv(struct icnss_priv *priv)
 {
@@ -1175,7 +1209,8 @@ static int icnss_driver_event_fw_ready_ind(struct icnss_priv *priv, void *data)
 	if (test_bit(ICNSS_PD_RESTART, &priv->state)) {
 		ret = icnss_pd_restart_complete(priv);
 	} else {
-		if (priv->wpss_supported)
+		wlan_get_cmdline();
+		if (priv->wpss_supported && strstr(command_line, "icnss2.hwname=ruan"))
 			icnss_setup_dms_mac(priv);
 		ret = icnss_call_driver_probe(priv);
 	}
@@ -3382,8 +3417,9 @@ int icnss_wlan_enable(struct device *dev, struct icnss_wlan_enable_cfg *config,
 		return -EINVAL;
 	}
 
-	if (priv->wpss_supported &&
-	    !priv->dms.nv_mac_not_prov && !priv->dms.mac_valid)
+	wlan_get_cmdline();
+	if (priv->wpss_supported && strstr(command_line, "icnss2.hwname=ruan")
+	    && !priv->dms.nv_mac_not_prov && !priv->dms.mac_valid)
 		icnss_setup_dms_mac(priv);
 
 	if (priv->device_id == WCN6750_DEVICE_ID) {
