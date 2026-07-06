@@ -1,13 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_X86_NMI_H
 #define _ASM_X86_NMI_H
 
+#include <linux/irq_work.h>
 #include <linux/pm.h>
 #include <asm/irq.h>
 #include <asm/io.h>
 
 #ifdef CONFIG_X86_LOCAL_APIC
 
-extern int avail_to_resrv_perfctr_nmi_bit(unsigned int);
 extern int reserve_perfctr_nmi(unsigned int);
 extern void release_perfctr_nmi(unsigned int);
 extern int reserve_evntsel_nmi(unsigned int);
@@ -38,6 +39,7 @@ typedef int (*nmi_handler_t)(unsigned int, struct pt_regs *);
 struct nmiaction {
 	struct list_head	list;
 	nmi_handler_t		handler;
+	u64			max_duration;
 	unsigned long		flags;
 	const char		*name;
 };
@@ -45,6 +47,7 @@ struct nmiaction {
 #define register_nmi_handler(t, fn, fg, n, init...)	\
 ({							\
 	static struct nmiaction init fn##_na = {	\
+		.list = LIST_HEAD_INIT(fn##_na.list),	\
 		.handler = (fn),			\
 		.name = (n),				\
 		.flags = (fg),				\
@@ -55,6 +58,8 @@ struct nmiaction {
 int __register_nmi_handler(unsigned int, struct nmiaction *);
 
 void unregister_nmi_handler(unsigned int, const char *);
+
+void set_emergency_nmi_handler(unsigned int type, nmi_handler_t handler);
 
 void stop_nmi(void);
 void restart_nmi(void);

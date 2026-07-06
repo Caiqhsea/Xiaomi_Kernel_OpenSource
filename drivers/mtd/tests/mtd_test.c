@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 #define pr_fmt(fmt) "mtd_test: " fmt
 
-#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/printk.h>
@@ -11,10 +11,9 @@ int mtdtest_erase_eraseblock(struct mtd_info *mtd, unsigned int ebnum)
 {
 	int err;
 	struct erase_info ei;
-	loff_t addr = ebnum * mtd->erasesize;
+	loff_t addr = (loff_t)ebnum * mtd->erasesize;
 
 	memset(&ei, 0, sizeof(struct erase_info));
-	ei.mtd  = mtd;
 	ei.addr = addr;
 	ei.len  = mtd->erasesize;
 
@@ -24,17 +23,14 @@ int mtdtest_erase_eraseblock(struct mtd_info *mtd, unsigned int ebnum)
 		return err;
 	}
 
-	if (ei.state == MTD_ERASE_FAILED) {
-		pr_info("some erase error occurred at EB %d\n", ebnum);
-		return -EIO;
-	}
 	return 0;
 }
+EXPORT_SYMBOL_GPL(mtdtest_erase_eraseblock);
 
 static int is_block_bad(struct mtd_info *mtd, unsigned int ebnum)
 {
 	int ret;
-	loff_t addr = ebnum * mtd->erasesize;
+	loff_t addr = (loff_t)ebnum * mtd->erasesize;
 
 	ret = mtd_block_isbad(mtd, addr);
 	if (ret)
@@ -62,6 +58,7 @@ int mtdtest_scan_for_bad_eraseblocks(struct mtd_info *mtd, unsigned char *bbt,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(mtdtest_scan_for_bad_eraseblocks);
 
 int mtdtest_erase_good_eraseblocks(struct mtd_info *mtd, unsigned char *bbt,
 				unsigned int eb, int ebcnt)
@@ -80,6 +77,7 @@ int mtdtest_erase_good_eraseblocks(struct mtd_info *mtd, unsigned char *bbt,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(mtdtest_erase_good_eraseblocks);
 
 int mtdtest_read(struct mtd_info *mtd, loff_t addr, size_t size, void *buf)
 {
@@ -97,6 +95,7 @@ int mtdtest_read(struct mtd_info *mtd, loff_t addr, size_t size, void *buf)
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(mtdtest_read);
 
 int mtdtest_write(struct mtd_info *mtd, loff_t addr, size_t size,
 		const void *buf)
@@ -112,3 +111,8 @@ int mtdtest_write(struct mtd_info *mtd, loff_t addr, size_t size,
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(mtdtest_write);
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("MTD function test helpers");
+MODULE_AUTHOR("Akinobu Mita");

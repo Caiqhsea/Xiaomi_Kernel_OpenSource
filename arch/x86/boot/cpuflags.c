@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/types.h>
 #include "bitops.h"
 
@@ -63,22 +64,15 @@ int has_eflag(unsigned long mask)
 	return !!((f0^f1) & mask);
 }
 
-/* Handle x86_32 PIC using ebx. */
-#if defined(__i386__) && defined(__PIC__)
-# define EBX_REG "=r"
-#else
-# define EBX_REG "=b"
-#endif
-
-static inline void cpuid(u32 id, u32 *a, u32 *b, u32 *c, u32 *d)
+void cpuid_count(u32 id, u32 count, u32 *a, u32 *b, u32 *c, u32 *d)
 {
-	asm volatile(".ifnc %%ebx,%3 ; movl  %%ebx,%3 ; .endif	\n\t"
-		     "cpuid					\n\t"
-		     ".ifnc %%ebx,%3 ; xchgl %%ebx,%3 ; .endif	\n\t"
-		    : "=a" (*a), "=c" (*c), "=d" (*d), EBX_REG (*b)
-		    : "a" (id)
+	asm volatile("cpuid"
+		     : "=a" (*a), "=b" (*b), "=c" (*c), "=d" (*d)
+		     : "0" (id), "2" (count)
 	);
 }
+
+#define cpuid(id, a, b, c, d) cpuid_count(id, 0, a, b, c, d)
 
 void get_cpuflags(void)
 {
@@ -102,9 +96,15 @@ void get_cpuflags(void)
 			cpuid(0x1, &tfms, &ignored, &cpu.flags[4],
 			      &cpu.flags[0]);
 			cpu.level = (tfms >> 8) & 15;
+			cpu.family = cpu.level;
 			cpu.model = (tfms >> 4) & 15;
 			if (cpu.level >= 6)
 				cpu.model += ((tfms >> 16) & 0xf) << 4;
+		}
+
+		if (max_intel_level >= 0x00000007) {
+			cpuid_count(0x00000007, 0, &ignored, &ignored,
+					&cpu.flags[16], &ignored);
 		}
 
 		cpuid(0x80000000, &max_amd_level, &ignored, &ignored,
@@ -114,6 +114,19 @@ void get_cpuflags(void)
 		    max_amd_level <= 0x8000ffff) {
 			cpuid(0x80000001, &ignored, &ignored, &cpu.flags[6],
 			      &cpu.flags[1]);
+		}
+
+		if (max_amd_level >= 0x8000001f) {
+			u32 ebx;
+
+			/*
+			 * The X86_FEATURE_COHERENCY_SFW_NO feature bit is in
+			 * the virtualization flags entry (word 8) and set by
+			 * scattered.c, so the bit needs to be explicitly set.
+			 */
+			cpuid(0x8000001f, &ignored, &ebx, &ignored, &ignored);
+			if (ebx & BIT(31))
+				set_bit(X86_FEATURE_COHERENCY_SFW_NO, cpu.flags);
 		}
 	}
 }

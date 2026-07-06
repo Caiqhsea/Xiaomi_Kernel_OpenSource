@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* Generate kernel symbol version hashes.
    Copyright 1996, 1997 Linux International.
 
@@ -7,19 +8,7 @@
    This file was part of the Linux modutils 2.4.22: moved back into the
    kernel sources by Rusty Russell/Kai Germaschewski.
 
-   This program is free software; you can redistribute it and/or modify it
-   under the terms of the GNU General Public License as published by the
-   Free Software Foundation; either version 2 of the License, or (at your
-   option) any later version.
-
-   This program is distributed in the hope that it will be useful, but
-   WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-   General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software Foundation,
-   Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -40,12 +29,11 @@ static struct symbol *symtab[HASH_BUCKETS];
 static FILE *debugfile;
 
 int cur_line = 1;
-char *cur_filename, *source_file;
+char *cur_filename;
 int in_source_file;
 
 static int flag_debug, flag_dump_defs, flag_reference, flag_dump_types,
 	   flag_preserve, flag_warnings;
-static const char *mod_prefix = "";
 
 static int errors;
 static int nsyms;
@@ -253,6 +241,7 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 						"unchanged\n");
 				}
 				sym->is_declared = 1;
+				free_list(defn, NULL);
 				return sym;
 			} else if (!sym->is_declared) {
 				if (sym->is_override && flag_preserve) {
@@ -261,6 +250,7 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 					print_type_name(type, name);
 					fprintf(stderr, " modversion change\n");
 					sym->is_declared = 1;
+					free_list(defn, NULL);
 					return sym;
 				} else {
 					status = is_unknown_symbol(sym) ?
@@ -268,6 +258,7 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 				}
 			} else {
 				error_with_pos("redefinition of %s", name);
+				free_list(defn, NULL);
 				return sym;
 			}
 			break;
@@ -283,11 +274,15 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 				break;
 			}
 		}
+
+		free_list(sym->defn, NULL);
+		free(sym->name);
+		free(sym);
 		--nsyms;
 	}
 
 	sym = xmalloc(sizeof(*sym));
-	sym->name = name;
+	sym->name = xstrdup(name);
 	sym->type = type;
 	sym->defn = defn;
 	sym->expansion_trail = NULL;
@@ -423,13 +418,15 @@ static struct string_list *read_node(FILE *f)
 	struct string_list node = {
 		.string = buffer,
 		.tag = SYM_NORMAL };
-	int c;
+	int c, in_string = 0;
 
 	while ((c = fgetc(f)) != EOF) {
-		if (c == ' ') {
+		if (!in_string && c == ' ') {
 			if (node.string == buffer)
 				continue;
 			break;
+		} else if (c == '"') {
+			in_string = !in_string;
 		} else if (c == '\n') {
 			if (node.string == buffer)
 				return NULL;
@@ -492,7 +489,7 @@ static void read_reference(FILE *f)
 			defn = def;
 			def = read_node(f);
 		}
-		subsym = add_reference_symbol(xstrdup(sym->string), sym->tag,
+		subsym = add_reference_symbol(sym->string, sym->tag,
 					      defn, is_extern);
 		subsym->is_override = is_override;
 		free_node(sym);
@@ -690,8 +687,7 @@ void export_symbol(const char *name)
 		if (flag_dump_defs)
 			fputs(">\n", debugfile);
 
-		/* Used as a linker script. */
-		printf("%s__crc_%s = 0x%08lx ;\n", mod_prefix, name, crc);
+		printf("#SYMVER %s 0x%08lx\n", name, crc);
 	}
 }
 
@@ -728,7 +724,7 @@ void error_with_pos(const char *fmt, ...)
 
 static void genksyms_usage(void)
 {
-	fputs("Usage:\n" "genksyms [-adDTwqhV] > /path/to/.tmp_obj.ver\n" "\n"
+	fputs("Usage:\n" "genksyms [-adDTwqhVR] > /path/to/.tmp_obj.ver\n" "\n"
 #ifdef __GNU_LIBRARY__
 	      "  -s, --symbol-prefix   Select symbol prefix\n"
 	      "  -d, --debug           Increment the debug level (repeatable)\n"
@@ -762,7 +758,6 @@ int main(int argc, char **argv)
 
 #ifdef __GNU_LIBRARY__
 	struct option long_opts[] = {
-		{"symbol-prefix", 1, 0, 's'},
 		{"debug", 0, 0, 'd'},
 		{"warnings", 0, 0, 'w'},
 		{"quiet", 0, 0, 'q'},
@@ -781,9 +776,6 @@ int main(int argc, char **argv)
 	while ((o = getopt(argc, argv, "s:dwqVDr:T:ph")) != EOF)
 #endif				/* __GNU_LIBRARY__ */
 		switch (o) {
-		case 's':
-			mod_prefix = optarg;
-			break;
 		case 'd':
 			flag_debug++;
 			break;
@@ -870,6 +862,9 @@ int main(int argc, char **argv)
 			nsyms, HASH_BUCKETS,
 			(double)nsyms / (double)HASH_BUCKETS);
 	}
+
+	if (dumpfile)
+		fclose(dumpfile);
 
 	return errors != 0;
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/isofs/export.c
  *
@@ -9,7 +10,7 @@
  *
  * The following files are helpful:
  *
- *     Documentation/filesystems/nfs/Exporting
+ *     Documentation/filesystems/nfs/exporting.rst
  *     fs/exportfs/expfs.c.
  */
 
@@ -44,7 +45,7 @@ static struct dentry *isofs_export_get_parent(struct dentry *child)
 {
 	unsigned long parent_block = 0;
 	unsigned long parent_offset = 0;
-	struct inode *child_inode = child->d_inode;
+	struct inode *child_inode = d_inode(child);
 	struct iso_inode_info *e_child_inode = ISOFS_I(child_inode);
 	struct iso_directory_record *de = NULL;
 	struct buffer_head * bh = NULL;
@@ -179,7 +180,7 @@ static struct dentry *isofs_fh_to_parent(struct super_block *sb,
 		return NULL;
 
 	return isofs_export_iget(sb,
-			fh_len > 2 ? ifid->parent_block : 0,
+			fh_len > 3 ? ifid->parent_block : 0,
 			ifid->parent_offset,
 			fh_len > 4 ? ifid->parent_generation : 0);
 }
