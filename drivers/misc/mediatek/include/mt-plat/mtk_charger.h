@@ -101,6 +101,10 @@ extern int charger_manager_enable_power_path(
 	struct charger_consumer *consumer,
 	int idx,
 	bool en);
+extern int charger_manager_force_disable_power_path(
+	struct charger_consumer *consumer,
+	int idx,
+	bool disable);
 extern int charger_manager_enable_charging(
 	struct charger_consumer *consumer,
 	int idx,
@@ -112,9 +116,17 @@ extern int charger_manager_get_zcv(
 extern int charger_manager_enable_chg_type_det(
 	struct charger_consumer *consumer,
 	bool en);
+/* BSP.Charger - 2020.11.13 - Add input suspend interface - start */
+extern int charger_manager_is_input_suspend(void);
+extern int charger_manager_set_input_suspend(bool suspend);
+extern int charger_manager_get_system_temp_level(void);
+extern void charger_manager_set_system_temp_level(int temp_level);
+extern int charger_manager_get_system_temp_level_max(void);
+/* BSP.Charger - 2020.11.13 - Add input suspend interface - start */
 extern int mtk_chr_is_charger_exist(unsigned char *exist);
 extern bool is_power_path_supported(void);
+/* BSP.Charge - 2020.11.09 - Add ibus(ma) interface */
+extern int charger_get_ibus_ma(void);
 extern int charger_get_vbus(void);
 extern bool mt_charger_plugin(void);
-
 #endif /* __MTK_CHARGER_H__ */

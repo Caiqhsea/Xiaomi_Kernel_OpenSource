@@ -15,6 +15,8 @@
 #include "ufs.h"
 #include "ufshcd.h"
 
+#define UFS_MTK_PLATFORM_VCC_ALWAYS_ON
+
 #ifndef CONFIG_FPGA_EARLY_PORTING
 /* If SPM function not ready, comment this define */
 #define SPM_READY
@@ -24,9 +26,6 @@
 
 /* If UPMU function not ready, comment this define */
 #define UPMU_READY
-
-/* If srclkenRC function not ready, comment this define */
-/* #define SR_CLKEN_RC_READY */
 #endif
 
 #define HIE_CHANGE_KEY_IN_NORMAL_WORLD

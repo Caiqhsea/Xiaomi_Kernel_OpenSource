@@ -203,7 +203,7 @@ irqreturn_t disp_irq_handler(int irq, void *dev_id)
 	unsigned int reg_temp_val = 0;
 
 	if (!dpmgr_is_power_on()) {
-		DISP_LOG_I("disp power off, no irq should be handled\n");
+//		DISP_LOG_I("disp power off, no irq should be handled\n");
 		return IRQ_NONE;
 	}
 	if (irq == ddp_get_module_irq(DISP_MODULE_DSI0)) {
@@ -397,7 +397,8 @@ irqreturn_t disp_irq_handler(int irq, void *dev_id)
 			rdma_start_time[index] = sched_clock();
 			DDPIRQ("IRQ: RDMA%d frame start!\n", index);
 			rdma_start_irq_cnt[index]++;
-			primary_display_wakeup_pf_thread();
+			if (!primary_display_is_video_mode())
+				primary_display_wakeup_pf_thread();
 		}
 		if (reg_val & (1 << 3)) {
 			mmprofile_log_ex(

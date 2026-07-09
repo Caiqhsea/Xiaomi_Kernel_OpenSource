@@ -47,10 +47,18 @@
 #include <mach/upmu_hw.h>
 #include <mt-plat/mtk_boot.h>
 #include <mt-plat/charger_type.h>
+#include <mt-plat/mtk_charger.h>
 #include <pmic.h>
 #include <tcpm.h>
 
 #include "mtk_charger_intf.h"
+/*BSP.TP - 2021.04.01 - Add tp charger mode flasg*/
+bool tp_charger_status;
+
+/* BSP.Charger - 2020.11.11 - add usb_otg node */
+extern bool usb_otg;
+/*BSP.TP - 2021.04.01 - Add tp charger mode flasg*/
+bool tp_charger_status;
 
 #ifdef CONFIG_EXTCON_USB_CHG
 struct usb_extcon_info {
@@ -77,7 +85,7 @@ void __attribute__((weak)) fg_charger_in_handler(void)
 struct chg_type_info {
 	struct device *dev;
 	struct charger_consumer *chg_consumer;
-	struct tcpc_device *tcpc_dev;
+	struct tcpc_device *tcpc;
 	struct notifier_block pd_nb;
 	bool tcpc_kpoc;
 	/* Charger Detection */
@@ -92,6 +100,9 @@ struct chg_type_info {
 	struct work_struct chg_in_work;
 	bool ignore_usb;
 	bool plugin;
+	/* BSP.Charge - 2021.03.02 - Add node to show typec_mode */
+	int typec_mode;
+	bool bypass_chgdet;
 };
 
 #ifdef CONFIG_FPGA_EARLY_PORTING
@@ -114,6 +125,12 @@ static const char * const mtk_chg_type_name[] = {
 	"Apple 1.0A Charger",
 	"Apple 0.5A Charger",
 	"Wireless Charger",
+	/* BSP.Charge - 2020.11.14 - enable 18W charging start */
+#ifdef CONFIG_MTK_SOFT_HVDCP_2
+	"HVDCP Charger",
+	"CHECK HV",
+#endif
+	/* BSP.Charge - 2020.11.14 - enable 18W charging end */
 };
 
 static void dump_charger_name(enum charger_type type)
@@ -127,6 +144,12 @@ static void dump_charger_name(enum charger_type type)
 	case APPLE_2_1A_CHARGER:
 	case APPLE_1_0A_CHARGER:
 	case APPLE_0_5A_CHARGER:
+	/* BSP.Charge - 2020.11.14 - enable 18W charging start */
+#ifdef CONFIG_MTK_SOFT_HVDCP_2
+	case HVDCP_CHARGER:
+	case CHECK_HV:
+#endif
+	/* BSP.Charge - 2020.11.14 - enable 18W charging end */
 		pr_info("%s: charger type: %d, %s\n", __func__, type,
 			mtk_chg_type_name[type]);
 		break;
@@ -156,6 +179,10 @@ struct mt_charger {
 	#endif
 	bool chg_online; /* Has charger in or not */
 	enum charger_type chg_type;
+	/* BSP.Charge - 2020.11.06 - Add node to limit current start */
+	struct charger_device *chg1_dev;
+	int constant_chg_cur_max;
+	/* BSP.Charge - 2020.11.06 - Add node to limit current end */
 };
 
 static int mt_charger_online(struct mt_charger *mtk_chg)
@@ -168,6 +195,9 @@ static int mt_charger_online(struct mt_charger *mtk_chg)
 		if (boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT ||
 		    boot_mode == LOW_POWER_OFF_CHARGING_BOOT) {
 			pr_notice("%s: Unplug Charger/USB\n", __func__);
+			/* BSP.charge --2021.01.12-- Show animation when unplugged start */
+			msleep(4000);
+			/* BSP.charge --2021.01.12-- Show animation when unplugged end */
 			pr_notice("%s: system_state=%d\n", __func__,
 				system_state);
 			if (system_state != SYSTEM_POWER_OFF)
@@ -194,6 +224,12 @@ static int mt_charger_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		val->intval = mtk_chg->chg_type;
 		break;
+	/* BSP.Charge - 2020.11.06 - Add node to limit current start*/
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		val->intval = mtk_chg->constant_chg_cur_max;
+		pr_info("%s : %d mA\n", __func__, val->intval);
+		break;
+	/* BSP.Charge - 2020.11.06 - Add node to limit current end */
 	default:
 		return -EINVAL;
 	}
@@ -236,6 +272,7 @@ static int mt_charger_set_property(struct power_supply *psy,
 	info = mtk_chg->extcon_info;
 #endif
 
+	cti = mtk_chg->cti;
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
 		mtk_chg->chg_online = val->intval;
@@ -243,14 +280,34 @@ static int mt_charger_set_property(struct power_supply *psy,
 		return 0;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		mtk_chg->chg_type = val->intval;
+		if (mtk_chg->chg_type != CHARGER_UNKNOWN)
+			charger_manager_force_disable_power_path(
+				cti->chg_consumer, MAIN_CHARGER, false);
+		else if (!cti->tcpc_kpoc)
+			charger_manager_force_disable_power_path(
+				cti->chg_consumer, MAIN_CHARGER, true);
 		break;
+	/* BSP.Charge - 2020.11.06 - Add node to limit current start*/
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		mtk_chg->constant_chg_cur_max = val->intval;
+		mtk_chg->chg1_dev = get_charger_by_name("primary_chg");
+		if (mtk_chg->chg1_dev)
+			chr_err("Found primary charger [%s]\n",
+				mtk_chg->chg1_dev->props.alias_name);
+		else {
+			chr_err("*** Error : can't find primary charger ***\n");
+			return 0;
+		}
+		charger_dev_set_input_current(mtk_chg->chg1_dev, (u32)val->intval * 1000);
+		pr_info("%s : %d mA\n", __func__, val->intval);
+		break;
+	/* BSP.Charge - 2020.11.06 - Add node to limit current end */
 	default:
 		return -EINVAL;
 	}
 
 	dump_charger_name(mtk_chg->chg_type);
 
-	cti = mtk_chg->cti;
 	if (!cti->ignore_usb) {
 		/* usb */
 		if ((mtk_chg->chg_type == STANDARD_HOST) ||
@@ -281,6 +338,24 @@ static int mt_charger_set_property(struct power_supply *psy,
 	return 0;
 }
 
+/* BSP.Charge - 2020.11.06 - Add node to limit current start*/
+static int mt_charger_is_writeable(struct power_supply *psy,
+					   enum power_supply_property prop)
+{
+	int rc;
+
+	switch (prop) {
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
+		rc = 1;
+		break;
+	default:
+		rc = 0;
+		break;
+	}
+	return rc;
+}
+/* BSP.Charge - 2020.11.06 - Add node to limit current end */
+
 static int mt_ac_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val)
 {
@@ -304,6 +379,55 @@ static int mt_ac_get_property(struct power_supply *psy,
 	return 0;
 }
 
+/* BSP.Charge - 2021.03.02 - Add node to show quick_charge_type start */
+enum quick_charge_type {
+	QUICK_CHARGE_NORMAL = 0,
+	QUICK_CHARGE_FAST,
+	QUICK_CHARGE_FLASH,
+	QUICK_CHARGE_TURPE,
+	QUICK_CHARGE_MAX,
+};
+
+struct quick_charge {
+	enum charger_type adap_type;
+	enum quick_charge_type adap_cap;
+};
+
+#ifdef CONFIG_MTK_SOFT_HVDCP_2
+	struct quick_charge adapter_cap[7] = {
+#else
+	struct quick_charge adapter_cap[5] = {
+#endif
+	{ STANDARD_HOST,		QUICK_CHARGE_NORMAL },
+	{ CHARGING_HOST,		QUICK_CHARGE_NORMAL },
+	{ STANDARD_CHARGER,		QUICK_CHARGE_NORMAL },
+	{ NONSTANDARD_CHARGER,		QUICK_CHARGE_NORMAL },
+#ifdef CONFIG_MTK_SOFT_HVDCP_2
+	{ CHECK_HV,			QUICK_CHARGE_NORMAL },
+	{ HVDCP_CHARGER,		QUICK_CHARGE_FAST },
+#endif
+	{0, 0},
+};
+
+static int mtk_get_quick_charge_type(enum charger_type usb_type)
+{
+	int i = 0;
+
+	if (!usb_type)
+		return 0;
+
+	while (adapter_cap[i].adap_type != 0) {
+		if (usb_type == adapter_cap[i].adap_type)
+			return adapter_cap[i].adap_cap;
+		i++;
+	}
+
+	return 0;
+}
+
+/* BSP.Charge - 2021.03.02 - Add node to show quick_charge_type end */
+/* BSP.Charge - 2020.11.11 - Add node to show typec_cc_orientation*/
+extern int typec_cc_orient;
 static int mt_usb_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val)
 {
@@ -323,6 +447,68 @@ static int mt_usb_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		val->intval = 5000000;
 		break;
+	/* BSP.Charge - 2020.11.09 - Add usb node - start */
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		val->intval = charger_get_vbus();
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+		val->intval = charger_get_ibus_ma();
+		break;
+	case POWER_SUPPLY_PROP_REAL_TYPE:
+		switch (mtk_chg->chg_type) {
+		case STANDARD_HOST:
+			val->intval = POWER_SUPPLY_TYPE_USB;
+			break;
+		case CHARGING_HOST:
+			val->intval = POWER_SUPPLY_TYPE_USB_CDP;
+			break;
+/* BSP.Charge - 2020.11.14 - enable 18W charging start */
+#ifdef CONFIG_MTK_SOFT_HVDCP_2
+		case CHECK_HV:
+#endif
+/* BSP.Charge - 2020.11.14 - enable 18W charging end */
+		case STANDARD_CHARGER:
+			val->intval = POWER_SUPPLY_TYPE_USB_DCP;
+			break;
+/* BSP.Charge - 2020.11.14 - enable 18W charging start */
+#ifdef CONFIG_MTK_SOFT_HVDCP_2
+		case HVDCP_CHARGER:
+			val->intval = POWER_SUPPLY_TYPE_USB_HVDCP;
+			break;
+#endif
+/* BSP.Charge - 2020.11.14 - enable 18W charging end */
+/* BSP.Charge - 2020.12.16 - add USB-FLOAT start */
+		case NONSTANDARD_CHARGER:
+			val->intval = POWER_SUPPLY_TYPE_USB_FLOAT;
+			break;
+/* BSP.Charge - 2020.12.16 - add USB-FLOAT end */
+		default:
+			val->intval = POWER_SUPPLY_TYPE_UNKNOWN;
+			break;
+		}
+		break;
+	case POWER_SUPPLY_PROPER_TYPEC_CC_ORIENTATION:
+		val->intval = typec_cc_orient;
+		break;
+	case POWER_SUPPLY_PROP_USB_OTG:
+		if (usb_otg)
+			val->intval = 1;
+		else
+			val->intval = 0;
+		break;
+	/* BSP.Charge - 2020.11.09 - Add usb node - end */
+	/* BSP.Charge - 2021.03.02 - Add node to show typec_mode start */
+	case POWER_SUPPLY_PROP_TYPEC_MODE:
+		val->intval = mtk_chg->cti->typec_mode;
+		break;
+
+	/* BSP.Charge - 2021.03.02 - Add node to show typec_mode end */
+	/* BSP.Charge - 2021.03.02 - Add node to show quick_charge_type start */
+	case POWER_SUPPLY_PROP_QUICK_CHARGE_TYPE:
+		val->intval = mtk_get_quick_charge_type(mtk_chg->chg_type);
+		break;
+
+	/* BSP.Charge - 2021.03.02 - Add node to show quick_charge_type end */
 	default:
 		return -EINVAL;
 	}
@@ -332,6 +518,8 @@ static int mt_usb_get_property(struct power_supply *psy,
 
 static enum power_supply_property mt_charger_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
+/* BSP.Charge - 2020.11.06 - Add node to limit current start*/
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
 };
 
 static enum power_supply_property mt_ac_properties[] = {
@@ -342,6 +530,21 @@ static enum power_supply_property mt_usb_properties[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_CURRENT_MAX,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX,
+	/* BSP.Charge - 2020.11.09 - Add usb node - start */
+	POWER_SUPPLY_PROP_REAL_TYPE,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROPER_TYPEC_CC_ORIENTATION,
+	/* BSP.Charge - 2020.11.09 - Add usb node - start*/
+	POWER_SUPPLY_PROP_REAL_TYPE,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_USB_OTG,
+	/* BSP.Charge - 2020.11.09 - Add usb node - end */
+	/* BSP.Charge - 2021.03.02 - Add node to show typec_mode */
+	POWER_SUPPLY_PROP_TYPEC_MODE,
+	/* BSP.Charge - 2021.03.15 - Add node to show quick_charge_type */
+	POWER_SUPPLY_PROP_QUICK_CHARGE_TYPE,
 };
 
 static void tcpc_power_off_work_handler(struct work_struct *work)
@@ -360,13 +563,53 @@ static void charger_in_work_handler(struct work_struct *work)
 static void plug_in_out_handler(struct chg_type_info *cti, bool en, bool ignore)
 {
 	mutex_lock(&cti->chgdet_lock);
+	if (cti->chgdet_en == en)
+		goto skip;
 	cti->chgdet_en = en;
 	cti->ignore_usb = ignore;
 	cti->plugin = en;
 	atomic_inc(&cti->chgdet_cnt);
 	wake_up_interruptible(&cti->waitq);
+skip:
 	mutex_unlock(&cti->chgdet_lock);
 }
+
+/* BSP.charge --2021.01.12-- Show animation when unplugged start */
+static void notify_plug_out(void)
+{
+	union power_supply_propval propval;
+	int ret;
+	struct power_supply *charger_psy = power_supply_get_by_name("charger");
+
+	if (charger_psy == NULL)
+		return;
+	propval.intval = CHARGER_UNKNOWN;
+	ret = power_supply_set_property(charger_psy,
+					POWER_SUPPLY_PROP_CHARGE_TYPE,
+					&propval);
+	propval.intval = !!(0);
+	ret = power_supply_set_property(charger_psy,
+					POWER_SUPPLY_PROP_ONLINE, &propval);
+}
+/* BSP.charge --2021.01.12-- Show animation when unplugged end */
+
+/* BSP.Charge - 2021.03.02 - Add node to show typec_mode start */
+static int get_source_mode(struct tcp_notify *noti)
+{
+	switch (noti->typec_state.rp_level) {
+	case TYPEC_CC_VOLT_SNK_1_5:
+		return POWER_SUPPLY_TYPEC_SOURCE_MEDIUM;
+	case TYPEC_CC_VOLT_SNK_3_0:
+		return POWER_SUPPLY_TYPEC_SOURCE_HIGH;
+	case TYPEC_CC_VOLT_SNK_DFT:
+		return POWER_SUPPLY_TYPEC_SOURCE_DEFAULT;
+	default:
+		break;
+	}
+
+	return POWER_SUPPLY_TYPEC_NONE;
+}
+/* BSP.Charge - 2021.03.02 - Add node to show typec_mode end */
 
 static int pd_tcp_notifier_call(struct notifier_block *pnb,
 				unsigned long event, void *data)
@@ -376,7 +619,16 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 		struct chg_type_info, pd_nb);
 	int vbus = 0;
 
+	/* BSP.charge --2021.01.12-- Show animation when unplugged start */
+	static struct charger_device *primary_charger;
+	primary_charger = get_charger_by_name("primary_chg");
+	/* BSP.charge --2021.01.12-- Show animation when unplugged end */
 	switch (event) {
+	case TCP_NOTIFY_SINK_VBUS:
+		if (tcpm_inquire_typec_attach_state(cti->tcpc) ==
+						   TYPEC_ATTACHED_AUDIO)
+			plug_in_out_handler(cti, !!noti->vbus_state.mv, true);
+		break;
 	case TCP_NOTIFY_TYPEC_STATE:
 		if (noti->typec_state.old_state == TYPEC_UNATTACHED &&
 		    (noti->typec_state.new_state == TYPEC_ATTACHED_SNK ||
@@ -384,29 +636,46 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 		    noti->typec_state.new_state == TYPEC_ATTACHED_NORP_SRC)) {
 			pr_info("%s USB Plug in, pol = %d\n", __func__,
 					noti->typec_state.polarity);
+			/* BSP.Charge - 2021.03.02 - Add node to show typec_mode */
+			cti->typec_mode = get_source_mode(noti);
 			plug_in_out_handler(cti, true, false);
+			/*BSP.TP - 2021.04.01 - Add tp charger mode flasg*/
+			tp_charger_status = true;
 		} else if ((noti->typec_state.old_state == TYPEC_ATTACHED_SNK ||
 		    noti->typec_state.old_state == TYPEC_ATTACHED_CUSTOM_SRC ||
-			noti->typec_state.old_state == TYPEC_ATTACHED_NORP_SRC)
+		    noti->typec_state.old_state == TYPEC_ATTACHED_NORP_SRC ||
+		    noti->typec_state.old_state == TYPEC_ATTACHED_AUDIO)
 			&& noti->typec_state.new_state == TYPEC_UNATTACHED) {
 			if (cti->tcpc_kpoc) {
 				vbus = battery_get_vbus();
 				pr_info("%s KPOC Plug out, vbus = %d\n",
 					__func__, vbus);
-				queue_work_on(cpumask_first(cpu_online_mask),
-					      cti->pwr_off_wq,
-					      &cti->pwr_off_work);
-				break;
+			/* BSP.charge --2021.01.12-- Show animation when unplugged start */
+				//queue_work_on(cpumask_first(cpu_online_mask),
+					      //cti->pwr_off_wq,
+					      //&cti->pwr_off_work);
+				//break;
 			}
+			/* BSP.Charge - 2021.03.02 - Add node to show typec_mode */
+			cti->typec_mode = POWER_SUPPLY_TYPEC_NONE;
 			pr_info("%s USB Plug out\n", __func__);
+			notify_plug_out();
+			charger_dev_enable_otg(primary_charger, false);
+			/* BSP.charge --2021.01.12-- Show animation when unplugged end */
 			plug_in_out_handler(cti, false, false);
+			/*BSP.TP - 2021.04.01 - Add tp charger mode flasg*/
+			tp_charger_status = false;
 		} else if (noti->typec_state.old_state == TYPEC_ATTACHED_SRC &&
 			noti->typec_state.new_state == TYPEC_ATTACHED_SNK) {
 			pr_info("%s Source_to_Sink\n", __func__);
+			/* BSP.Charge - 2021.03.02 - Add node to show typec_mode */
+			cti->typec_mode = POWER_SUPPLY_TYPEC_SINK;
 			plug_in_out_handler(cti, true, true);
 		}  else if (noti->typec_state.old_state == TYPEC_ATTACHED_SNK &&
 			noti->typec_state.new_state == TYPEC_ATTACHED_SRC) {
 			pr_info("%s Sink_to_Source\n", __func__);
+			/* BSP.Charge - 2021.03.02 - Add node to show typec_mode */
+			cti->typec_mode = get_source_mode(noti);
 			plug_in_out_handler(cti, false, true);
 		}
 		break;
@@ -418,8 +687,15 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 static int chgdet_task_threadfn(void *data)
 {
 	struct chg_type_info *cti = data;
-	bool attach = false;
+	bool attach = false, ignore_usb = false;
 	int ret = 0;
+	struct power_supply *psy = power_supply_get_by_name("charger");
+	union power_supply_propval val = {.intval = 0};
+
+	if (!psy) {
+		pr_notice("%s: power supply get fail\n", __func__);
+		return -ENODEV;
+	}
 
 	pr_info("%s: ++\n", __func__);
 	while (!kthread_should_stop()) {
@@ -435,7 +711,16 @@ static int chgdet_task_threadfn(void *data)
 		mutex_lock(&cti->chgdet_lock);
 		atomic_set(&cti->chgdet_cnt, 0);
 		attach = cti->chgdet_en;
+		ignore_usb = cti->ignore_usb;
 		mutex_unlock(&cti->chgdet_lock);
+
+		if (attach && ignore_usb) {
+			cti->bypass_chgdet = true;
+			goto bypass_chgdet;
+		} else if (!attach && cti->bypass_chgdet) {
+			cti->bypass_chgdet = false;
+			goto bypass_chgdet;
+		}
 
 #ifdef CONFIG_MTK_EXTERNAL_CHARGER_TYPE_DETECT
 		if (cti->chg_consumer)
@@ -444,6 +729,27 @@ static int chgdet_task_threadfn(void *data)
 #else
 		mtk_pmic_enable_chr_type_det(attach);
 #endif
+		goto pm_relax;
+bypass_chgdet:
+		val.intval = attach;
+		ret = power_supply_set_property(psy, POWER_SUPPLY_PROP_ONLINE,
+						&val);
+		if (ret < 0)
+			pr_notice("%s: power supply set online fail(%d)\n",
+				  __func__, ret);
+		if (tcpm_inquire_typec_attach_state(cti->tcpc) ==
+						   TYPEC_ATTACHED_AUDIO)
+			val.intval = attach ? NONSTANDARD_CHARGER :
+					      CHARGER_UNKNOWN;
+		else
+			val.intval = attach ? STANDARD_HOST : CHARGER_UNKNOWN;
+		ret = power_supply_set_property(psy,
+						POWER_SUPPLY_PROP_CHARGE_TYPE,
+						&val);
+		if (ret < 0)
+			pr_notice("%s: power supply set charge type fail(%d)\n",
+				  __func__, ret);
+pm_relax:
 		pm_relax(cti->dev);
 	}
 	pr_info("%s: --\n", __func__);
@@ -501,6 +807,8 @@ static int mt_charger_probe(struct platform_device *pdev)
 	mt_chg->chg_desc.num_properties = ARRAY_SIZE(mt_charger_properties);
 	mt_chg->chg_desc.set_property = mt_charger_set_property;
 	mt_chg->chg_desc.get_property = mt_charger_get_property;
+/* BSP.Charge - 2020.11.06 - Add node to limit current start*/
+	mt_chg->chg_desc.property_is_writeable = mt_charger_is_writeable;
 	mt_chg->chg_cfg.drv_data = mt_chg;
 
 	mt_chg->ac_desc.name = "ac";
@@ -759,14 +1067,14 @@ static int __init mt_charger_det_notifier_call_init(void)
 	mt_chg = power_supply_get_drvdata(psy);
 	cti = mt_chg->cti;
 
-	cti->tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
-	if (cti->tcpc_dev == NULL) {
+	cti->tcpc = tcpc_dev_get_by_name("type_c_port0");
+	if (cti->tcpc == NULL) {
 		pr_notice("%s: get tcpc dev fail\n", __func__);
 		ret = -ENODEV;
 		goto out;
 	}
 	cti->pd_nb.notifier_call = pd_tcp_notifier_call;
-	ret = register_tcp_dev_notifier(cti->tcpc_dev,
+	ret = register_tcp_dev_notifier(cti->tcpc,
 		&cti->pd_nb, TCP_NOTIFY_TYPE_ALL);
 	if (ret < 0) {
 		pr_notice("%s: register tcpc notifier fail(%d)\n",

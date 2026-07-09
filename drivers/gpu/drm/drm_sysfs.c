@@ -17,6 +17,7 @@
 #include <linux/gfp.h>
 #include <linux/err.h>
 #include <linux/export.h>
+#include <drm/drm_encoder.h>
 
 #include <drm/drm_sysfs.h>
 #include <drm/drmP.h>
@@ -229,16 +230,84 @@ static ssize_t modes_show(struct device *device,
 	return written;
 }
 
+/* BSP.LCM - 2022.11.15 - modify for LCM disp_param */
+void drm_bridge_disp_param_set(struct drm_bridge *bridge, int cmd);
+static ssize_t disp_param_store(struct device *device,
+			   struct device_attribute *attr,
+			   const char *buf, size_t count)
+{
+	int param;
+	struct drm_connector *connector = NULL;
+	struct drm_encoder *encoder = NULL;
+	struct drm_bridge *bridge = NULL;
+
+	if (!device)
+		return count;
+
+	connector = to_drm_connector(device);
+	if (!connector)
+		return count;
+
+	encoder = connector->encoder;
+	if (!encoder)
+		return count;
+
+	bridge = encoder->bridge;
+	if (!bridge)
+		return count;
+	sscanf(buf, "0x%x", &param);
+
+	drm_bridge_disp_param_set(bridge, param);
+
+	return count;
+}
+
+int drm_bridge_disp_param_get(struct drm_bridge *bridge, char *buf);
+static ssize_t disp_param_show(struct device *device,
+			    struct device_attribute *attr,
+			   char *buf)
+{
+	int rc = 0;
+	char tmpbuf[PAGE_SIZE] = {0};
+	struct drm_connector *connector = NULL;
+	struct drm_encoder *encoder = NULL;
+	struct drm_bridge *bridge = NULL;
+
+	if (!device)
+		return rc;
+
+	connector = to_drm_connector(device);
+	if (!connector)
+		return rc;
+
+	encoder = connector->encoder;
+	if (!encoder)
+		return rc;
+
+	bridge = encoder->bridge;
+	if (!bridge)
+		return rc;
+
+	rc = drm_bridge_disp_param_get(bridge, tmpbuf);
+	if (rc)
+		return snprintf(buf, PAGE_SIZE, "%s\n", tmpbuf);
+
+	return rc;
+}
+/* end modify*/
+
 static DEVICE_ATTR_RW(status);
 static DEVICE_ATTR_RO(enabled);
 static DEVICE_ATTR_RO(dpms);
 static DEVICE_ATTR_RO(modes);
+static DEVICE_ATTR_RW(disp_param);
 
 static struct attribute *connector_dev_attrs[] = {
 	&dev_attr_status.attr,
 	&dev_attr_enabled.attr,
 	&dev_attr_dpms.attr,
 	&dev_attr_modes.attr,
+	&dev_attr_disp_param.attr,
 	NULL
 };
 

@@ -26,11 +26,14 @@ struct mt6360_chg_platform_data {
 	u32 mivr;
 	u32 cv;
 	u32 ieoc;
+	/* BSP.Charge - 2021.01.21 - add recharge volt */
+	u32 vrechg;
 	u32 safety_timer;
 	u32 ircmp_resistor;
 	u32 ircmp_vclamp;
 	u32 en_te;
 	u32 en_wdt;
+	u32 en_otg_wdt;
 	u32 aicc_once;
 	u32 post_aicc;
 	u32 batoc_notify;

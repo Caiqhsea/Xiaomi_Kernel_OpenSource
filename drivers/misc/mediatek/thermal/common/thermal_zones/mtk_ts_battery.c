@@ -469,7 +469,9 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		BUG();
+		/* BSP.Charge - 2020.11.16 - disable reboot when battery is overheat */
+		//BUG();
+		pr_debug("Need to power off insted of KE !!!");
 	}
 	return 0;
 }

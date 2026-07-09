@@ -91,7 +91,7 @@ int get_shutdown_cond(void)
 	if (sdc.shutdown_status.is_soc_zero_percent)
 		ret |= 1;
 	if (sdc.shutdown_status.is_uisoc_one_percent)
-		ret |= 1;
+		ret |= 0;
 	if (sdc.lowbatteryshutdown)
 		ret |= 1;
 	bm_err("%s ret:%d %d %d %d vbat:%d\n",
@@ -501,9 +501,10 @@ void power_misc_handler(void *arg)
 static int power_misc_routine_thread(void *arg)
 {
 	struct shutdown_controller *sdd = arg;
+	int ret = 0;
 
 	while (1) {
-		wait_event(sdd->wait_que, (sdd->timeout == true)
+		ret = wait_event_interruptible(sdd->wait_que, (sdd->timeout == true)
 			|| (sdd->overheat == true));
 		if (sdd->timeout == true) {
 			sdd->timeout = false;
@@ -539,7 +540,9 @@ int mtk_power_misc_psy_event(
 			psy, POWER_SUPPLY_PROP_TEMP, &val);
 		if (!ret) {
 			tmp = val.intval / 10;
-			if (tmp >= BATTERY_SHUTDOWN_TEMPERATURE) {
+			/* BSP.Charge - 2021.02.04 - check charger mode avoid reboot after overheat poweroff */
+			if ((tmp >= BATTERY_SHUTDOWN_TEMPERATURE) &&
+					(is_kernel_power_off_charging() != true)) {
 				bm_err(
 					"battery temperature >= %d,shutdown",
 					tmp);

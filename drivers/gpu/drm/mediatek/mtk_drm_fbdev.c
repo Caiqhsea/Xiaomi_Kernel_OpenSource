@@ -31,10 +31,30 @@
 #include "mtk_log.h"
 #include "mtk_drm_mmp.h"
 
+#include <linux/kref.h>
+
 #define to_drm_private(x) container_of(x, struct mtk_drm_private, fb_helper)
 #define ALIGN_TO_32(x) ALIGN_TO(x, 32)
 
+/* BSP.LCM - 2020.12.30 start */
+unsigned int hbm_mode;
+extern int ktd_hbm_set(enum backlight_hbm_mode hbm_mode);
+extern int ti_hbm_set(enum backlight_hbm_mode hbm_mode);
+/* BSP.LCM - 2020.12.30 end */
+
 struct fb_info *debug_info;
+
+static inline int try_use_fb_buf(struct drm_device *dev)
+{
+	struct mtk_drm_private *priv = dev->dev_private;
+
+	if (priv == NULL) {
+		DDPPR_ERR("%s: priv is NULL\n", __func__);
+		return 0;
+	}
+
+	return kref_get_unless_zero(&priv->kref_fb_buf);
+}
 
 unsigned int mtk_drm_fb_fm_auto_test(struct fb_info *info)
 {
@@ -214,6 +234,7 @@ int pan_display_test(int frame_num, int bpp)
 
 #define MTK_LEGACY_FB_MAP
 #ifndef MTK_LEGACY_FB_MAP
+
 static int mtk_drm_fbdev_mmap(struct fb_info *info, struct vm_area_struct *vma)
 {
 	struct drm_fb_helper *helper = info->par;
@@ -222,6 +243,84 @@ static int mtk_drm_fbdev_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	debug_info = info;
 	return mtk_drm_gem_mmap_buf(private->fbdev_bo, vma);
 }
+
+#else
+
+static void mtk_drm_fbdev_vm_close(struct vm_area_struct *vma)
+{
+	struct fb_info *info = vma->vm_file->private_data;
+	struct drm_fb_helper *fb_helper = info->par;
+	struct drm_device *drm_dev = fb_helper->dev;
+
+	DDPMSG("%s: munmap done\n", __func__);
+	try_free_fb_buf(drm_dev);
+}
+
+static int mtk_drm_fbdev_vm_split(struct vm_area_struct *area, unsigned long addr)
+{
+	/* don't support split */
+	DDPPR_ERR("split not support\n");
+	return -EFAULT;
+}
+
+static const struct vm_operations_struct mtk_drm_fbdev_vm_ops = {
+	.split = mtk_drm_fbdev_vm_split,
+	.close = mtk_drm_fbdev_vm_close,
+};
+
+static int mtk_drm_fbdev_mmap(struct fb_info *info, struct vm_area_struct *vma)
+{
+	/* copy from fbmem.c */
+
+	unsigned long mmio_pgoff;
+	unsigned long start;
+	u32 len;
+	int ret;
+
+	struct drm_fb_helper *fb_helper = info->par;
+	struct drm_device *drm_dev = fb_helper->dev;
+
+	if (!try_use_fb_buf(drm_dev)) {
+		DDPPR_ERR("%s: fb has been freed!\n", __func__);
+		return -ENOMEM;
+	}
+
+	/*
+	 * Ugh. This can be either the frame buffer mapping, or
+	 * if pgoff points past it, the mmio mapping.
+	 */
+	start = info->fix.smem_start;
+	len = info->fix.smem_len;
+	mmio_pgoff = PAGE_ALIGN((start & ~PAGE_MASK) + len) >> PAGE_SHIFT;
+	if (vma->vm_pgoff >= mmio_pgoff) {
+		if (info->var.accel_flags) {
+			mutex_unlock(&info->mm_lock);
+			return -EINVAL;
+		}
+
+		vma->vm_pgoff -= mmio_pgoff;
+		start = info->fix.mmio_start;
+		len = info->fix.mmio_len;
+	}
+
+	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
+	/*
+	 * The framebuffer needs to be accessed decrypted, be sure
+	 * SME protection is removed
+	 */
+	vma->vm_page_prot = pgprot_decrypted(vma->vm_page_prot);
+	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+
+	ret = vm_iomap_memory(vma, start, len);
+	if (ret)
+		return ret;
+
+	/* blow is our action */
+	vma->vm_ops = &mtk_drm_fbdev_vm_ops;
+
+	return ret;
+}
+
 #endif
 
 static struct fb_ops mtk_fbdev_ops = {
@@ -234,9 +333,7 @@ static struct fb_ops mtk_fbdev_ops = {
 	.fb_blank = drm_fb_helper_blank,
 	.fb_pan_display = mtk_drm_fb_pan_display,
 	.fb_setcmap = drm_fb_helper_setcmap,
-#ifndef MTK_LEGACY_FB_MAP
 	.fb_mmap = mtk_drm_fbdev_mmap,
-#endif
 	.fb_ioctl = mtk_drm_fb_ioctl,
 };
 
@@ -266,6 +363,9 @@ bool mtk_drm_lcm_is_connect(void)
 int _parse_tag_videolfb(unsigned int *vramsize, phys_addr_t *fb_base,
 			unsigned int *fps)
 {
+#ifdef CONFIG_MTK_DISP_NO_LK
+		return -1;
+#else
 	struct device_node *chosen_node;
 
 	*fps = 6000;
@@ -299,9 +399,10 @@ found:
 	DDPINFO("[DT][videolfb] fps	   = %d\n", *fps);
 
 	return 0;
+#endif
 }
 
-int free_fb_buf(void)
+static void free_fb_buf(struct kref *kref)
 {
 	unsigned long va_start = 0;
 	unsigned long va_end = 0;
@@ -311,8 +412,8 @@ int free_fb_buf(void)
 	_parse_tag_videolfb(&vramsize, &fb_base, &fps);
 
 	if (!fb_base) {
-		DDPINFO("%s:get fb pa error\n", __func__);
-		return -1;
+		DDPPR_ERR("%s:get fb pa error\n", __func__);
+		return;
 	}
 
 	va_start = (unsigned long)__va(fb_base);
@@ -322,9 +423,122 @@ int free_fb_buf(void)
 				   (void *)va_end, 0xff, "fbmem");
 	else
 		DDPINFO("%s:va invalid\n", __func__);
+}
+
+int try_free_fb_buf(struct drm_device *dev)
+{
+	struct mtk_drm_private *priv = dev->dev_private;
+
+	DDPFUNC();
+
+	if (priv == NULL) {
+		DDPPR_ERR("%s: priv is NULL\n", __func__);
+		return -1;
+	}
+	return kref_put(&priv->kref_fb_buf, free_fb_buf);
+}
+
+/* BSP.LCM - 2020.12.08 start */
+struct fb_lcd_wp_para lcd_wp_para = {0};
+bool set_white_point_x = true;
+
+/* white_point info from lk */
+static int __init mtkfb_get_white_point(char *p)
+{
+	char wpoint[10];
+
+	strlcpy(wpoint, p, sizeof(wpoint));
+
+	printk("[%s]: white_point = %s\n", __func__, wpoint);
+	pr_err("mtkfb_get_white_point come in !!!\n");
+
+	lcd_wp_para.white_point_x = (wpoint[0]-'0') * 100
+		+ (wpoint[1]-'0') * 10 + (wpoint[2]-'0');
+
+	lcd_wp_para.white_point_y = (wpoint[3]-'0') * 100
+		+ (wpoint[4]-'0') * 10 + (wpoint[5]-'0');
+
+	lcd_wp_para.white_point_l = (wpoint[6]-'0') * 100
+		+ (wpoint[7]-'0') * 10 + (wpoint[8]-'0');
 
 	return 0;
 }
+early_param("ro.boot.lcm_white_point", mtkfb_get_white_point);
+
+static ssize_t mtkfb_get_wpoint_level(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int ret;
+	ret = scnprintf(buf, PAGE_SIZE, "%3d\n", lcd_wp_para.white_point_l);
+	return ret;
+}
+
+static ssize_t mtkfb_set_wpoint_level(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
+{
+	sscanf(buf, "%3d", &lcd_wp_para.white_point_l);
+	return len;
+}
+
+static ssize_t mtkfb_get_wpoint(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int ret;
+	ret = scnprintf(buf, PAGE_SIZE, "%3d%3d\n",
+			lcd_wp_para.white_point_x, lcd_wp_para.white_point_y);
+	return ret;
+}
+
+static ssize_t mtkfb_set_wpoint(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
+{
+	if (set_white_point_x) {
+		sscanf(buf, "%3d", &lcd_wp_para.white_point_x);
+		set_white_point_x = false;
+	} else {
+		sscanf(buf, "%3d", &lcd_wp_para.white_point_y);
+		set_white_point_x = true;
+	}
+		return len;
+}
+
+static DEVICE_ATTR(mtkfb_dispwpoint, 0644, mtkfb_get_wpoint, mtkfb_set_wpoint);
+static DEVICE_ATTR(mtkfb_dispwpoint_level, 0644, mtkfb_get_wpoint_level, mtkfb_set_wpoint_level);
+/* BSP.LCM - 2020.12.08 end */
+
+/* BSP.LCM - 2020.12.30 start */
+static ssize_t mtkfb_get_hbm(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int ret;
+
+	ret = snprintf(buf, 128, "hbm_mode:%d\n", hbm_mode);
+
+	return ret;
+}
+
+static ssize_t mtkfb_set_hbm(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
+{
+	extern char *saved_command_line;
+	int bkl_id = 0;
+	char *bkl_ptr = (char *)strnstr(saved_command_line, ":bklic=", strlen(saved_command_line));
+	bkl_ptr += strlen(":bklic=");
+	bkl_id = simple_strtol(bkl_ptr, NULL, 10);
+
+	sscanf(buf, "%d", &hbm_mode);
+
+	if (hbm_mode >= HBM_MODE_LEVEL_MAX)
+		hbm_mode = HBM_MODE_LEVEL_MAX - 1;
+	if (hbm_mode < HBM_MODE_DEFAULT)
+		hbm_mode = HBM_MODE_DEFAULT;
+
+	if (bkl_id == 1) {
+		ti_hbm_set((enum backlight_hbm_mode)hbm_mode);
+		printk("[%s]: Ti, set hbm_mode = %d\n", __func__, hbm_mode);
+	} else {
+		ktd_hbm_set((enum backlight_hbm_mode)hbm_mode);
+		printk("[%s]: ktd, set hbm_mode = %d\n", __func__, hbm_mode);
+	}
+	return len;
+}
+
+static DEVICE_ATTR(mtk_fb_hbm, 0644, mtkfb_get_hbm, mtkfb_set_hbm);
+/* BSP.LCM - 2020.12.30 end */
 
 static int mtk_fbdev_probe(struct drm_fb_helper *helper,
 			   struct drm_fb_helper_surface_size *sizes)
@@ -341,6 +555,17 @@ static int mtk_fbdev_probe(struct drm_fb_helper *helper,
 	phys_addr_t fb_base = 0;
 
 	DDPMSG("%s+\n", __func__);
+
+/* BSP.LCM - 2020.12.08 start */
+	err = device_create_file(helper->dev->dev, &dev_attr_mtkfb_dispwpoint);
+	if (err)
+		pr_err("sysfs group creat failed, rc = %d\n", err);
+/* BSP.LCM - 2020.12.08 end */
+
+	err = device_create_file(helper->dev->dev, &dev_attr_mtkfb_dispwpoint_level);
+	if (err)
+		pr_err("sysfs wp_lv creat failed, rc = %d\n", err);
+
 	bytes_per_pixel = DIV_ROUND_UP(sizes->surface_bpp, 8);
 	mode.pixel_format = drm_mode_legacy_fb_format(sizes->surface_bpp,
 						      sizes->surface_depth);
@@ -399,8 +624,9 @@ static int mtk_fbdev_probe(struct drm_fb_helper *helper,
 	drm_fb_helper_fill_var(info, helper, sizes->fb_width, sizes->fb_height);
 
 	dev->mode_config.fb_base = fb_base;
-	info->screen_base = mtk_gem->kvaddr;
-	info->screen_size = size;
+	// not need to read and write for fbdev
+	info->screen_base = NULL;//mtk_gem->kvaddr;
+	info->screen_size = 0;//size;
 	info->fix.smem_len = size;
 	info->fix.smem_start = fb_base;
 	debug_info = info;
@@ -409,7 +635,13 @@ static int mtk_fbdev_probe(struct drm_fb_helper *helper,
 	mtk_drm_assert_fb_init(dev,
 			       sizes->surface_width, sizes->surface_height);
 #endif
-
+/* BSP.LCM - 2020.12.31 start */
+	err = device_create_file(helper->dev->dev, &dev_attr_mtk_fb_hbm);
+	if (err)
+		pr_err("sysfs hbm creat failed, rc = %d\n", err);
+	else
+		pr_info("sysfs hbm creat success, rc = %d\n", err);
+/* BSP.LCM - 2020.12.31 end */
 	DRM_DEBUG_KMS("FB [%ux%u]-%u size=%zd\n", fb->width,
 		      fb->height, fb->format->depth, size);
 
@@ -462,8 +694,11 @@ int mtk_fbdev_init(struct drm_device *dev)
 	int ret;
 
 	DDPMSG("%s+\n", __func__);
-	if (!dev->mode_config.num_crtc || !dev->mode_config.num_connector)
+	if (!dev->mode_config.num_crtc || !dev->mode_config.num_connector
+									|| (priv == NULL))
 		return -EINVAL;
+
+	kref_init(&priv->kref_fb_buf);
 
 	drm_fb_helper_prepare(dev, helper, &mtk_drm_fb_helper_funcs);
 

@@ -155,6 +155,8 @@ int get_dspscene_by_dspdaiid(int id)
 		return TASK_SCENE_KTV;
 	case AUDIO_TASK_CAPTURE_RAW_ID:
 		return TASK_SCENE_CAPTURE_RAW;
+	case AUDIO_TASK_FM_ADSP_ID:
+		return TASK_SCENE_FM_ADSP;
 	default:
 		pr_warn("%s() err\n", __func__);
 		return -1;
@@ -191,6 +193,8 @@ int get_dspdaiid_by_dspscene(int dspscene)
 		return AUDIO_TASK_KTV_ID;
 	case TASK_SCENE_CAPTURE_RAW:
 		return AUDIO_TASK_CAPTURE_RAW_ID;
+	case TASK_SCENE_FM_ADSP:
+		return AUDIO_TASK_FM_ADSP_ID;
 	default:
 		pr_info("%s() err dspscene=%d\n", __func__, dspscene);
 		return -1;
@@ -255,6 +259,8 @@ int get_dsp_task_id_from_str(const char *task_name)
 		ret = AUDIO_TASK_CALL_FINAL_ID;
 	else if (strstr(task_name, "ktv"))
 		ret = AUDIO_TASK_KTV_ID;
+	else if (strstr(task_name, "fm"))
+		ret = AUDIO_TASK_FM_ADSP_ID;
 	else if (strstr(task_name, "offload"))
 		ret = AUDIO_TASK_OFFLOAD_ID;
 	else if (strstr(task_name, "capture"))
@@ -354,7 +360,7 @@ int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 	if (task_id < 0 || task_id >= AUDIO_TASK_DAI_NUM)
 		return -1;
 
-	if (get_task_attr(task_id, ADSP_TASK_ATTR_RUMTIME) <= 0 ||
+	if (get_task_attr(task_id, ADSP_TASK_ATTR_RUNTIME) <= 0 ||
 	    get_task_attr(task_id, ADSP_TASK_ATTR_DEFAULT) <= 0)
 		return -1;
 

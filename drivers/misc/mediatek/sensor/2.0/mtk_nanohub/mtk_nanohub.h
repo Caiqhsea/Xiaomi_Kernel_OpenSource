@@ -237,6 +237,7 @@ struct data_unit_t {
 		struct sensor_vec_t pdr_event;
 
 		int32_t light;
+		int32_t rear_light;
 		struct proximity_vec_t proximity_t;
 		int32_t temperature;
 		struct pressure_vec_t pressure_t;

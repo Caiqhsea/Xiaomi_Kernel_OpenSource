@@ -11,7 +11,7 @@ obj-y   +=  tpd_default.o
 obj-y   +=  tpd_misc.o
 obj-y   +=  tpd_setting.o
 obj-$(CONFIG_TOUCHSCREEN_MTK_SOLOMON)	+=  SOLOMON/
-obj-$(CONFIG_TOUCHSCREEN_FTS)	+=  focaltech_touch/
+#obj-$(CONFIG_TOUCHSCREEN_FTS)	+=  focaltech_touch/
 obj-$(CONFIG_TOUCHSCREEN_MTK_GT1151)	+=  GT1151/
 obj-$(CONFIG_TOUCHSCREEN_MTK_GT911)	+=  GT911/
 obj-$(CONFIG_TOUCHSCREEN_MTK_GSLX680)	+=  gslX680/
@@ -22,3 +22,9 @@ obj-$(CONFIG_TOUCHSCREEN_MTK_GT5688)	+=  GT5688/
 obj-$(CONFIG_TOUCHSCREEN_HIMAX_I2C)	+=  hxchipset/
 obj-$(CONFIG_TOUCHSCREEN_MTK_FOCALTECH_FHD)	+=  focaltech_fhd_touch/
 obj-$(CONFIG_TOUCHSCREEN_MTK_GT9157)    +=  GT9157/
+# BSP.TP - 2020.10.29 - Add for TP bring up
+obj-$(CONFIG_TOUCHSCREEN_NT36672C)      += NT36672C/
+#BSP.TP - 2020.12.28 - Add for palm senser
+obj-$(CONFIG_TOUCHSCREEN_XIAOMI_TOUCHFEATURE)  += xiaomi/
+# BSP.TP - 2021.02.04 - Add for TP bring up
+obj-$(CONFIG_TOUCHSCREEN_FTS)      += FT8722/

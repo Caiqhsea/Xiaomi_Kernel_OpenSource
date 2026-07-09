@@ -21,6 +21,13 @@
 #include "simulator_kernel.h"
 #endif
 
+/* BSP.Charge - 2020.11.09 - Add battery node - start */
+/* ============================================================ */
+/* define */
+/* ============================================================ */
+#define TEMP_TABLE_ITEM_NUM 27
+/* BSP.Charge - 2020.11.09 - Add battery node - end */
+
 
 /* ============================================================ */
 /* typedef */

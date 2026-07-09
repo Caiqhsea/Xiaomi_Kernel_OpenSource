@@ -85,6 +85,7 @@
 #include <linux/io.h>
 #include <linux/idr.h>
 #include <linux/dma-mapping.h>
+#include <linux/proc_fs.h>
 
 #if defined(CONFIG_USBIF_COMPLIANCE)
 #include <linux/kthread.h>
@@ -210,9 +211,6 @@ static const struct of_device_id apusb_of_ids[] = {
 };
 
 /* void __iomem	*USB_BASE; */
-
-module_param_named(speed, musb_speed, uint, 0644);
-MODULE_PARM_DESC(debug, "USB speed configuration. default = 1, high speed");
 module_param_named(debug, musb_debug, uint, 0644);
 MODULE_PARM_DESC(debug, "Debug message level. Default = 0");
 module_param_named(debug_limit, musb_debug_limit, uint, 0644);
@@ -2658,7 +2656,7 @@ static int musb_init_controller
 	if (status < 0)
 		goto fail3;
 
-#ifdef CONFIG_DEBUG_FS
+#ifdef CONFIG_PROC_FS
 	status = musb_init_debugfs(musb);
 	if (status < 0)
 		goto fail4;
@@ -2672,7 +2670,7 @@ static int musb_init_controller
 	pm_runtime_put(musb->controller);
 
 	return 0;
-#ifdef CONFIG_DEBUG_FS
+#ifdef CONFIG_PROC_FS
 #ifdef CONFIG_SYSFS
 fail5:
 	musb_exit_debugfs(musb);
@@ -2751,7 +2749,7 @@ static int musb_remove(struct platform_device *pdev)
 	 *  - Peripheral mode: peripheral is deactivated (or never-activated)
 	 *  - OTG mode: both roles are deactivated (or never-activated)
 	 */
-#ifdef CONFIG_DEBUG_FS
+#ifdef CONFIG_PROC_FS
 	musb_exit_debugfs(musb);
 #endif
 	musb_shutdown(pdev);
@@ -2896,7 +2894,17 @@ bool __attribute__ ((weak)) usb_pre_clock(bool enable)
 static int musb_suspend_noirq(struct device *dev)
 {
 	struct musb *musb = dev_to_musb(dev);
-	/*unsigned long flags; */
+
+	if (is_host_active(musb)) {
+		if (musb->host_suspend) {
+			DBG(0, "host suspend\n");
+			musb_platform_enable_wakeup(musb);
+			musb_platform_disable_clk(musb);
+			musb_platform_unprepare_clk(musb);
+			usb_hal_dpidle_request(USB_DPIDLE_SUSPEND);
+		}
+		return 0;
+	}
 
 	/*No need spin lock in xxx_noirq() */
 	/*spin_lock_irqsave(&musb->lock, flags); */
@@ -2929,6 +2937,17 @@ static int musb_suspend_noirq(struct device *dev)
 static int musb_resume_noirq(struct device *dev)
 {
 	struct musb *musb = dev_to_musb(dev);
+
+	if (is_host_active(musb)) {
+		if (musb->host_suspend) {
+			DBG(0, "host resume\n");
+			usb_hal_dpidle_request(USB_DPIDLE_RESUME);
+			musb_platform_prepare_clk(musb);
+			musb_platform_enable_clk(musb);
+			musb_platform_disable_wakeup(musb);
+		}
+		return 0;
+	}
 
 	usb_pre_clock(true);
 

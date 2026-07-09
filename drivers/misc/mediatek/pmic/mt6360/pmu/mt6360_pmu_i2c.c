@@ -22,7 +22,7 @@
 #include <linux/i2c.h>
 #include <linux/of_gpio.h>
 #include <linux/pm_runtime.h>
-
+#include <mt-plat/mtk_boot_common.h>
 #include "../inc/mt6360_pmu.h"
 
 bool dbg_log_en; /* module param to enable/disable debug log */
@@ -33,12 +33,13 @@ static const struct mt6360_pmu_platform_data def_platform_data = {
 	.disable_lpsd = false,
 };
 
-static int mt6360_pmu_read_device(void *client, u32 addr, int len, void *dst)
+static int mt6360_pmu_read_device(void *const client, u32 addr, int len,
+				  void *dst)
 {
 	return i2c_smbus_read_i2c_block_data(client, addr, len, dst);
 }
 
-static int mt6360_pmu_write_device(void *client, u32 addr,
+static int mt6360_pmu_write_device(void *const client, u32 addr,
 				   int len, const void *src)
 {
 	return i2c_smbus_write_i2c_block_data(client, addr, len, src);
@@ -240,9 +241,9 @@ static inline int mt6360_pmu_chip_id_check(struct i2c_client *i2c)
 	ret = i2c_smbus_read_byte_data(i2c, MT6360_PMU_DEV_INFO);
 	if (ret < 0)
 		return ret;
-	if ((ret & 0xf0) != 0x50)
+	if (((u32)ret & 0xf0) != 0x50)
 		return -ENODEV;
-	return (ret & 0x0f);
+	return ((u32)ret & 0x0f);
 }
 
 static inline void mt6360_config_of_node(struct device *dev, const char *name)
@@ -262,7 +263,7 @@ static int mt6360_pmu_i2c_probe(struct i2c_client *client,
 				const struct i2c_device_id *id)
 {
 	struct mt6360_pmu_platform_data *pdata = dev_get_platdata(&client->dev);
-	struct mt6360_pmu_info *mpi;
+	struct mt6360_pmu_info *mpi = NULL;
 	bool use_dt = client->dev.of_node;
 	u8 chip_rev;
 	int ret;
@@ -327,12 +328,14 @@ static int mt6360_pmu_i2c_probe(struct i2c_client *client,
 		dev_err(&client->dev, "subdev register fail\n");
 		goto out_irq;
 	}
-	if (pdata->disable_lpsd) {
+	//BSP.System - 2020.11.25 - diable lp sys reset begin
+	if (pdata->disable_lpsd || get_boot_mode() == RECOVERY_BOOT) {
 		ret = mt6360_pmu_reg_update_bits(mpi, MT6360_PMU_CHG_PUMP,
 						reg_mask, reg_data);
 		if (ret < 0)
 			dev_err(&client->dev, "%s: LPSD set fail\n", __func__);
 	}
+	//BSP.System - 2020.11.25 - diable lp sys reset begin
 	pm_runtime_enable(mpi->dev);
 	dev_info(&client->dev, "%s: successfully probed\n", __func__);
 	return 0;

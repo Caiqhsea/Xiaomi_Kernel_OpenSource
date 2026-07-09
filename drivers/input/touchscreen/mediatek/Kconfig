@@ -138,6 +138,19 @@ config TOUCHSCREEN_MTK_GT5688
 source "drivers/input/touchscreen/mediatek/GT5688/Kconfig"
 source "drivers/input/touchscreen/mediatek/hxchipset/Kconfig"
 
+config TOUCHSCREEN_HIMAX_CHIPSET_8789P1_8185P3
+	bool "hxchipset for Mediatek 8789p1 and 8185p3 package"
+	default n
+	help
+	  Say Y here if you have hxchipset touch panel.
+
+	  If unsure, say N.
+
+	  To compile this dirver as a module, choose M here: the
+	  module will be called.
+
+source "drivers/input/touchscreen/mediatek/hxchipset_8789p1_8185p3/Kconfig"
+
 config TOUCHSCREEN_MTK_GT911
 	bool "GT911 for Mediatek package"
 	help
@@ -167,5 +180,10 @@ config TOUCHSCREEN_MTK_GT9157
 	  module will be called
 
 source "drivers/input/touchscreen/mediatek/GT9157/Kconfig"
-
+# BSP.TP - 2020.10.29 - Add for TP bring up
+source "drivers/input/touchscreen/mediatek/NT36672C/Kconfig"
+#BSP.TP - 2020.12.28 - Add for palm senser
+source "drivers/input/touchscreen/mediatek/xiaomi/Kconfig"
+# BSP.TP - 2021.02.24 - Add for TP bring up
+source "drivers/input/touchscreen/mediatek/FT8722/Kconfig"
 endif

@@ -48,11 +48,11 @@ config MTK_ROUND_CORNER_SUPPORT
 
 config LCM_HEIGHT
 	string "define LCM HEIGHT size"
-	default "1920"
+	default "2340"
 	help
 	  To set LCM resolution height size.
 	  This define is in ProjectConfig.mk.
-	  LCM height can be set 1024/1920/680 etc.
+	  LCM height can be set 1024/2340/680 etc.
 	  If you want to change LCM height, please define it in ProjectConfig.mk.
 
 config LCM_WIDTH
@@ -167,3 +167,28 @@ config MTK_DRE30_SUPPORT
 	  display visual enhancement ver.3.
 	  This feature requires the cowork of AAL user-space algorithm process.
 	  Please also turn on MTK_AAL_SUPPORT amd MTK_DRE30_SUPPORT in ProjectConfig.mk.
+
+config MTK_DX_HDCP_DDP_SUPPORT
+	bool "enable display driver support HDCP"
+	default n
+	help
+	  define CONFIG_MTK_DX_HDCP_DDP_SUPPORT to enable display driver support HDCP.
+	  If you want to use HDCP feature, first should make sure MTK_DX_HDCP_DDP_SUPPORT set as "yes".
+	  Then please make sure CONFIG_MTK_DX_HDCP_DDP_SUPPORT set as Y in xxx_defconfig.mk.
+	  If unsure, set N.
+
+config MTK_MT6382_VDO_MODE
+	bool "VDO LCM Support Bridge IC 6382"
+	help
+	  This config decide if Display is VDO mode with BridgeIC 6382.
+	  BridgeIC 6382 can support VESA-1.2 DSC, compressing display framedata
+	  Normal project will disable it first
+	  If you are not sure about this, do not set it to y
+
+config MTK_MT6382_CMD_MODE
+	bool "CMD LCM Support Bridge IC 6382"
+	help
+	  This config decide if Display is CMD device with BridgeIC 6382.
+	  BridgeIC 6382 can support VESA-1.2 DSC, compressing display framedata
+	  Normal project will disable it first
+	  If you are not sure about this, do not set it to y

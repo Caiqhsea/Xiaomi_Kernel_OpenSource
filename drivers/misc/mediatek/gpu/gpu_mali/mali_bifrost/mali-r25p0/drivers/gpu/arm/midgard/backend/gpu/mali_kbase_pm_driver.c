@@ -536,6 +536,23 @@ static const char *kbase_l2_core_state_to_string(enum kbase_l2_core_state state)
 		return strings[state];
 }
 
+#if !MALI_USE_CSF
+/* On powering on the L2, the tracked kctx becomes stale and can be cleared.
+ * This enables the backend to spare the START_FLUSH.INV_SHADER_OTHER
+ * operation on the first submitted katom after the L2 powering on.
+ */
+static void kbase_pm_l2_clear_backend_slot_submit_kctx(struct kbase_device *kbdev)
+{
+	int js;
+
+	lockdep_assert_held(&kbdev->hwaccess_lock);
+
+	/* Clear the slots' last katom submission kctx */
+	for (js = 0; js < kbdev->gpu_props.num_job_slots; js++)
+		kbdev->hwaccess.backend.slot_rb[js].last_kctx_tagged = SLOT_RB_NULL_TAG_VAL;
+}
+#endif
+
 static int kbase_pm_l2_update_state(struct kbase_device *kbdev)
 {
 	struct kbase_pm_backend_data *backend = &kbdev->pm.backend;
@@ -593,7 +610,10 @@ static int kbase_pm_l2_update_state(struct kbase_device *kbdev)
 					kbase_pm_invoke(kbdev, KBASE_PM_CORE_L2,
 							l2_present & ~1,
 							ACTION_PWRON);
-				backend->l2_state = KBASE_L2_PEND_ON;
+				/* Clear backend slot submission kctx */
+				kbase_pm_l2_clear_backend_slot_submit_kctx(kbdev);
+				
+                                backend->l2_state = KBASE_L2_PEND_ON;
 			}
 			break;
 
@@ -1285,8 +1305,8 @@ void kbase_pm_update_state(struct kbase_device *kbdev)
 
 	lockdep_assert_held(&kbdev->hwaccess_lock);
 
-	if (!kbdev->pm.backend.gpu_powered)
-		return; /* Do nothing if the GPU is off */
+	if (!kbdev->pm.backend.gpu_ready)
+		return; /* Do nothing if the GPU is not ready */
 
 	if (kbase_pm_l2_update_state(kbdev))
 		return;
@@ -1465,7 +1485,8 @@ static void kbase_pm_timed_out(struct kbase_device *kbdev)
 					L2_PWRTRANS_LO)));
 
 	dev_err(kbdev->dev, "Sending reset to GPU - all running jobs will be lost\n");
-	if (kbase_prepare_to_reset_gpu(kbdev))
+	if (kbase_prepare_to_reset_gpu(kbdev,
+				RESET_FLAGS_HWC_UNRECOVERABLE_ERROR))
 		kbase_reset_gpu(kbdev);
 }
 
@@ -1628,6 +1649,7 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 
 	/* Turn on the L2 caches */
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
+	kbdev->pm.backend.gpu_ready = true;
 	kbdev->pm.backend.l2_desired = true;
 	kbase_pm_update_state(kbdev);
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
@@ -1669,6 +1691,8 @@ bool kbase_pm_clock_off(struct kbase_device *kbdev)
 	}
 
 	kbase_pm_cache_snoop_disable(kbdev);
+
+	kbdev->pm.backend.gpu_ready = false;
 
 	/* The GPU power may be turned off from this point */
 	kbdev->pm.backend.gpu_powered = false;
@@ -1759,20 +1783,18 @@ static int kbase_set_jm_quirks(struct kbase_device *kbdev, const u32 prod_id)
 
 	if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_IDVS_GROUP_SIZE)) {
 		int default_idvs_group_size = 0xF;
-		u32 tmp;
+		u32 group_size = 0;
 
-		if (of_property_read_u32(kbdev->dev->of_node,
-					"idvs-group-size", &tmp))
-			tmp = default_idvs_group_size;
-
-		if (tmp > IDVS_GROUP_MAX_SIZE) {
+		if (of_property_read_u32(kbdev->dev->of_node, "idvs-group-size",
+					 &group_size))
+			group_size = default_idvs_group_size;
+		if (group_size > IDVS_GROUP_MAX_SIZE) {
 			dev_err(kbdev->dev,
 				"idvs-group-size of %d is too large. Maximum value is %d",
-				tmp, IDVS_GROUP_MAX_SIZE);
-			tmp = default_idvs_group_size;
+				group_size, IDVS_GROUP_MAX_SIZE);
+			group_size = default_idvs_group_size;
 		}
-
-		kbdev->hw_quirks_jm |= tmp << IDVS_GROUP_SIZE_SHIFT;
+		kbdev->hw_quirks_jm |= group_size << IDVS_GROUP_SIZE_SHIFT;
 	}
 
 #define MANUAL_POWER_CONTROL ((u32)(1 << 8))

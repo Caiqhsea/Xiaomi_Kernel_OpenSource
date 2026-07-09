@@ -331,6 +331,36 @@ void drm_bridge_pre_enable(struct drm_bridge *bridge)
 }
 EXPORT_SYMBOL(drm_bridge_pre_enable);
 
+/* BSP.LCM - 2022.11.15 - modify for LCM disp_param */
+void drm_bridge_disp_param_set(struct drm_bridge *bridge, int cmd)
+{
+	if (!bridge)
+		return;
+
+	drm_bridge_disp_param_set(bridge->next, cmd);
+
+	if (bridge->funcs->disp_param_set)
+		bridge->funcs->disp_param_set(bridge, cmd);
+}
+EXPORT_SYMBOL(drm_bridge_disp_param_set);
+
+int drm_bridge_disp_param_get(struct drm_bridge *bridge, char *buf)
+{
+	int rc = 0;
+
+	if (!bridge || !buf)
+	return rc;
+
+	drm_bridge_disp_param_get(bridge->next, buf);
+
+	if (bridge->funcs->disp_param_get)
+		return bridge->funcs->disp_param_get(bridge, buf);
+
+	return rc;
+}
+EXPORT_SYMBOL(drm_bridge_disp_param_get);
+/* end modify*/
+
 /**
  * drm_bridge_enable - enables all bridges in the encoder chain
  * @bridge: bridge control structure

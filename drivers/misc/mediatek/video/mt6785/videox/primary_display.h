@@ -391,8 +391,6 @@ int primary_display_diagnose_oneshot(const char *func, int line);
 
 int primary_display_get_info(struct disp_session_info *info);
 int primary_display_capture_framebuffer(unsigned long pbuf);
-int primary_display_capture_framebuffer_ovl(unsigned long pbuf,
-					    unsigned int format);
 
 int primary_display_is_video_mode(void);
 int primary_is_sec(void);
@@ -526,7 +524,7 @@ extern void check_mm0_clk_sts(void);
 #ifdef MTK_FB_MMDVFS_SUPPORT
 int primary_display_get_dvfs_last_req(void);
 #endif
-
+void primary_display_vdo_restart(bool need_wait_frame_done);
 /**************function for ARR start************************/
 unsigned int primary_display_is_support_ARR(void);
 int primary_display_wait_fps_change(unsigned int *new_fps);
@@ -556,6 +554,10 @@ int lcm_fps_ctx_init(struct lcm_fps_ctx_t *fps_ctx);
 int lcm_fps_ctx_reset(struct lcm_fps_ctx_t *fps_ctx);
 int lcm_fps_ctx_update(struct lcm_fps_ctx_t *fps_ctx,
 		unsigned long long cur_ns);
+
+int primary_display_set_lcm_hbm(bool en, struct disp_frame_cfg_t *cfg);
+int primary_display_hbm_wait(bool en);
+int primary_display_hbm_delay(bool en, struct disp_frame_cfg_t *cfg);
 
 #ifdef CONFIG_MTK_HIGH_FRAME_RATE
 /**************function for DynFPS start************************/

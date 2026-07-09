@@ -11,6 +11,10 @@
  * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
  */
 
+#if IS_ENABLED(CONFIG_MACH_MT6781)
+#include "../../../mt6781/include/mach/pseudo_m4u.h"
+#else
+
 #ifndef __PSEUDO_M4U_H__
 #define __PSEUDO_M4U_H__
 
@@ -229,6 +233,7 @@ struct iova *__alloc_iova(struct iova_domain *iovad, size_t size,
 void __free_iova(struct iova_domain *iovad, struct iova *iova);
 void __iommu_dma_unmap(struct iommu_domain *domain, dma_addr_t dma_addr);
 
+int pseudo_m4u_sec_init(int mtk_iommu_sec_id);
 
 /* IOCTL commnad */
 #define MTK_M4U_MAGICNO 'g'
@@ -304,4 +309,5 @@ int pseudo_dump_iova_reserved_region(struct seq_file *s);
 #define F_SMI_DOMN(domain)	F_VAL(domain, 8, 4)
 #define F_SMI_DOMN_VAL(regval)	F_MSK_SHIFT(regval, 8, 4)
 
+#endif
 #endif

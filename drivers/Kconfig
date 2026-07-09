@@ -21,6 +21,8 @@ source "drivers/pnp/Kconfig"
 
 source "drivers/block/Kconfig"
 
+source "drivers/mihw/Kconfig"
+
 source "drivers/nvme/Kconfig"
 
 # misc before ide - BLK_DEV_SGIIOC4 depends on SGI_IOC4
@@ -214,5 +216,8 @@ source "drivers/fsi/Kconfig"
 source "drivers/tee/Kconfig"
 
 source "drivers/mux/Kconfig"
+# BSP.audio - 2020.11.09 - modify to add headphone node start
+source "drivers/switch/Kconfig"
+# BSP.audio - 2020.11.09 - modify to add headphone node end
 
 endmenu

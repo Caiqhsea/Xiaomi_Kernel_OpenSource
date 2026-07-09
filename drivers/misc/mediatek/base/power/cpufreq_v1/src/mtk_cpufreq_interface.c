@@ -596,11 +596,11 @@ static int cpufreq_cci_mode_proc_show(struct seq_file *m, void *v)
 #ifdef CONFIG_HYBRID_CPU_DVFS
 	mode = cpuhvfs_get_cci_mode();
 	if (mode == 0)
-		seq_puts(m, "cci_mode as Normal mode\n");
+		seq_puts(m, "cci_mode as Normal mode 0\n");
 	else if (mode == 1)
-		seq_puts(m, "cci_mode as Perf mode\n");
+		seq_puts(m, "cci_mode as Perf mode 1\n");
 	else
-		seq_puts(m, "cci_mode as Unknown mode\n");
+		seq_puts(m, "cci_mode as Unknown mode 2\n");
 #endif
 	return 0;
 }
@@ -725,6 +725,18 @@ static ssize_t cpufreq_imax_thermal_protect_proc_write(struct file *file,
 
 #endif
 
+/* BSP.System - 2020.11.9 - add cpumaxfreq node*/
+unsigned long cpufreq_max_freq;
+static int cpumaxfreq_proc_show(struct seq_file *m, void *v)
+{
+	unsigned long freq = 0;
+	/* freq (kHz) */
+	freq = cpufreq_max_freq / 10000;
+	seq_printf(m, "%lu.%01lu\n", freq / 100, (freq  % 100) / 10);
+	return 0;
+}
+PROC_FOPS_RO(cpumaxfreq);
+
 PROC_FOPS_RW(cpufreq_debug);
 PROC_FOPS_RW(cpufreq_stress_test);
 PROC_FOPS_RW(cpufreq_power_mode);
@@ -781,6 +793,8 @@ int cpufreq_procfs_init(void)
 		PROC_ENTRY(cpufreq_volt),
 		PROC_ENTRY(cpufreq_turbo_mode),
 	};
+	/* BSP.System - 2020.11.9 - add cpumaxfreq node*/
+	const struct pentry cpumaxfreq_entry = PROC_ENTRY(cpumaxfreq);
 
 	dir = proc_mkdir("cpufreq", NULL);
 
@@ -795,6 +809,14 @@ int cpufreq_procfs_init(void)
 		    (entries[i].name, 0664, dir, entries[i].fops))
 			tag_pr_notice("%s(), create /proc/cpufreq/%s failed\n",
 				__func__, entries[i].name);
+	}
+	/* BSP.System - 2020.11.9 - add cpumaxfreq node*/
+	if (!proc_create("cpumaxfreq", 0444, NULL, cpumaxfreq_entry.fops)) {
+		tag_pr_notice("%s(), create /proc/%s failed\n",
+				__func__, cpumaxfreq_entry.name);
+	} else {
+		tag_pr_notice("%s(), create /proc/%s success\n",
+				__func__, cpumaxfreq_entry.name);
 	}
 
 	for_each_cpu_dvfs(j, p) {
