@@ -21,6 +21,7 @@
 | cas-q-oss | Mi 10 Ultra, Mi 10 Pro, Mi 10, Redmi K30 Pro | Android Q | LA.UM.8.12.r1-10600-sm8250.0 | [cas-q-oss](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/cas-q-oss) |
 | cannon-q-oss | Redmi Note 9 | Android Q | MTK | [cannon-q-oss](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/cannon-q-oss) |
 | camellia-r-oss | Redmi Note 10 | Android R | MTK | [camellia-r-oss](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/camellia-r-oss) |  
+| camellian-t-oss | POCO M3 Pro 5G / Redmi Note 10 5G / Redmi Note 10T | Android T | alps-mp-s0.mp1.tc8sp-mt6785 |[camellian-t-oss](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/camellian-t-oss) |
 | cepheus-p-oss | Mi 9 | Android P | LA.UM.7.1.r1-07600-sm8150.0 | [cepheus-p-oss](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/cepheus-p-oss) |
 | cepheus-q-oss | Mi 9, Redmi K20 Pro | Android Q | LA.UM.8.1.r1-08700-sm8150.0 | [cepheus-q-oss](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/cepheus-q-oss) |
 | cezanne-q-oss | Redmi K30 Ultra | Android Q | MTK | [cezanne-q-oss](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/cezanne-q-oss) |
