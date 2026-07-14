@@ -126,6 +126,12 @@ config SCSI_UFS_HISI
 	  Select this if you have UFS controller on Hisilicon chipset.
 	  If unsure, say N.
 
+config SCSI_UFS_XIAOMI_FFU
+	bool "Xiaomi UFS FFU"
+	depends on SCSI_UFSHCD
+	help
+	  Kernel configuration file for MI UFS features
+
 config SCSI_UFS_BSG
 	bool "Universal Flash Storage BSG device node"
 	depends on SCSI_UFSHCD
@@ -152,19 +158,19 @@ config SCSI_UFS_FEATURE
 	UFS feature activate such as hpb, tw and etc.
 
 config SCSI_UFS_HPB
-	bool "UFSHPB"
+	bool "UFS Host Performance Booster support"
 	depends on SCSI_UFSHCD && SCSI_UFS_FEATURE
 	---help---
 	UFS HPB Feature Enable
 
 config SCSI_UFS_TW
-	bool "UFSTW"
+	bool "UFS Turbo Write support"
 	depends on SCSI_UFSHCD && SCSI_UFS_FEATURE
 	---help---
 	UFS TW Feature Enable
 
 config SCSI_UFS_TW_IGNORE_GUARANTEE_BIT
-	bool "UFSTW_IGNORE_GUARANTEE_BIT"
+	bool "Ignore UFS Turbo Write Life Time Guarantee bit for POC"
 	default n
 	depends on SCSI_UFSHCD && SCSI_UFS_FEATURE && SCSI_UFS_TW
 	help
@@ -178,6 +184,12 @@ config SCSI_SKHPB
 	depends on SCSI_UFSHCD
 	help
 	  Activate or deactive SKHPB driver
+
+config UFS_CHECK
+	bool "Activate WB&HPB provision check"
+	depends on SCSI_UFSHCD && FACTORY_BUILD
+	help
+	  Activate or deactive WB&HPB provision check
 
 config SCSI_UFS_CRYPTO
 	bool "UFS Crypto Engine Support"

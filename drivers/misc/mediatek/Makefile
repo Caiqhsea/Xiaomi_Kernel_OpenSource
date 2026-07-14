@@ -203,8 +203,12 @@ obj-y += spi_slave_drv/
 endif
 obj-$(CONFIG_MTK_MT6382_BDG) += spi_slave_drv/
 obj-$(CONFIG_MTK_SDA) += sda/
+obj-$(CONFIG_MTK_ULTRASND_PROXIMITY) += elliptic/
 obj-$(CONFIG_MTK_MDDP_SUPPORT) += mddp/
 obj-$(CONFIG_MTK_GATE_IC) += gate_ic/
 obj-$(CONFIG_MTK_FREQ_HOPPING) += freqhopping/
 obj-$(CONFIG_MTK_TASK_TURBO) += task_turbo/
 obj-$(CONFIG_AW862xx_HAPTIC) += aw862xx_haptic/
+subdir-ccflags-y += -D_XIAOMI_
+subdir-ccflags-y += -D_XIAOMI_AGATE_
+

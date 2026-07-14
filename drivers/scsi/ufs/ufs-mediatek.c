@@ -1297,6 +1297,8 @@ static int ufs_mtk_init(struct ufs_hba *hba)
 	host->hba = hba;
 	ufshcd_set_variant(hba, host);
 
+	device_rename(hba->dev, "bootdevice");
+
 	/* Get host quirks */
 	id = of_match_device(ufs_mtk_of_match, dev);
 	if (!id) {

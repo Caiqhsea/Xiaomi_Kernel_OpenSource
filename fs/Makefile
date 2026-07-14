@@ -132,3 +132,7 @@ obj-y				+= exofs/ # Multiple modules
 obj-$(CONFIG_CEPH_FS)		+= ceph/
 obj-$(CONFIG_PSTORE)		+= pstore/
 obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
+
+# HONGMI-163266 add support exfat by guochengqian at 20230112 start
+obj-$(CONFIG_EXFAT_FS)		+= exfat/
+# HONGMI-163266 add support exfat by guochengqian at 20230112 end

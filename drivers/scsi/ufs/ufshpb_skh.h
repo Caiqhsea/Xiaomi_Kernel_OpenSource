@@ -13,7 +13,7 @@
 #include <linux/workqueue.h>
 
 /* Version info*/
-#define SKHPB_DD_VER				0x010508
+#define SKHPB_DD_VER				0x010500
 
 /* This quirk makes HPB driver always works as Devie Control Mode.
  * To cover old Configuration descriptor format which interpret
@@ -23,7 +23,7 @@
 /* Discard SubRegion activation hint information that has been processed,
  * when the host enters RPM/SPM sleep.
  * Must not be set the bit in ufs_quirks.h.*/
-#define SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP (1 << 20)
+#define SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP (1 << 2)
 
 /* Constant value*/
 #define SKHPB_SECTOR					512
@@ -275,6 +275,7 @@ struct skhpb_map_req {
 	int subregion_mem_size;
 	int lun;
 	int retry_cnt;
+	bool unset_rb_block_flag;
 
 	/* for debug : RSP Profiling */
 	__u64 RSP_start; // get the request from device
@@ -364,8 +365,6 @@ struct skhpb_lu {
 	struct mutex sysfs_lock;
 	struct skhpb_sysfs_entry *sysfs_entries;
 
-	bool hpb_control_mode;
-
 	/* for debug */
 	bool force_hpb_read_disable;
 	bool force_map_req_disable;
@@ -378,7 +377,6 @@ struct skhpb_lu {
 	atomic64_t rb_noti_cnt;
 	atomic64_t rb_fail;
 	atomic64_t reset_noti_cnt;
-	atomic64_t w_map_req_cnt;
 #if defined(SKHPB_READ_LARGE_CHUNK_SUPPORT)
 	atomic64_t lc_entry_dirty_miss;
 	atomic64_t lc_reg_subreg_miss;
@@ -403,9 +401,9 @@ struct ufshcd_lrb;
 void ufshcd_init_hpb(struct ufs_hba *hba);
 void skhpb_init_handler(struct work_struct *work);
 void skhpb_prep_fn(struct ufs_hba *hba, struct ufshcd_lrb *lrbp);
+void skhpb_hcm_prep_fn(struct ufs_hba *hba, struct ufshcd_lrb *lrbp);
 void skhpb_rsp_upiu(struct ufs_hba *hba, struct ufshcd_lrb *lrbp);
 void skhpb_suspend(struct ufs_hba *hba);
-void skhpb_resume(struct ufs_hba *hba);
 void skhpb_release(struct ufs_hba *hba, int state);
 int skhpb_issue_req_dev_ctx(struct skhpb_lu *hpb, unsigned char *buf,
 				int buf_length);

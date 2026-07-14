@@ -8,20 +8,32 @@ ifneq ($(strip $(TARGET_NO_KERNEL)),true)
 
 include $(LOCAL_PATH)/kenv.mk
 
+TZ ?= $(shell cat /etc/timezone)
+$(warning TZ for kernel build: $(TZ))
+
+$(TARGET_FACTORY_BUILD_CONFIG): \
+	$(info $(shell if [ $(FACTORY_BUILD) = 1 ]; then \
+		echo "FACTORY_BUILD: add CONFIG_FACTORY_BUILD=y to $(KERNEL_CONFIG_FILE)"; \
+		echo "CONFIG_FACTORY_BUILD=y" >> $(KERNEL_CONFIG_FILE); \
+	else \
+		echo "Not FACTORY_BUILD: remove CONFIG_FACTORY_BUILD=y from $(KERNEL_CONFIG_FILE)"; \
+		sed -i '/CONFIG_FACTORY_BUILD=y/d' $(KERNEL_CONFIG_FILE); \
+	fi))
+
 ifeq ($(wildcard $(TARGET_PREBUILT_KERNEL)),)
 KERNEL_MAKE_DEPENDENCIES := $(shell find $(KERNEL_DIR) -name .git -prune -o -type f | sort)
 
 $(TARGET_KERNEL_CONFIG): PRIVATE_DIR := $(KERNEL_DIR)
 $(TARGET_KERNEL_CONFIG): $(KERNEL_CONFIG_FILE) $(LOCAL_PATH)/Android.mk
-$(TARGET_KERNEL_CONFIG): $(KERNEL_MAKE_DEPENDENCIES)
+$(TARGET_KERNEL_CONFIG): $(KERNEL_MAKE_DEPENDENCIES) $(TARGET_FACTORY_BUILD_CONFIG)
 	$(hide) mkdir -p $(dir $@)
-	$(PREBUILT_MAKE_PREFIX)$(MAKE) -C $(PRIVATE_DIR) $(KERNEL_MAKE_OPTION) $(KERNEL_DEFCONFIG)
+	TZ=$(TZ) $(PREBUILT_MAKE_PREFIX)$(MAKE) -C $(PRIVATE_DIR) $(KERNEL_MAKE_OPTION) $(KERNEL_DEFCONFIG)
 
 .KATI_RESTAT: $(KERNEL_ZIMAGE_OUT)
 $(KERNEL_ZIMAGE_OUT): PRIVATE_DIR := $(KERNEL_DIR)
 $(KERNEL_ZIMAGE_OUT): $(TARGET_KERNEL_CONFIG) $(KERNEL_MAKE_DEPENDENCIES)
 	$(hide) mkdir -p $(dir $@)
-	$(PREBUILT_MAKE_PREFIX)$(MAKE) -C $(PRIVATE_DIR) $(KERNEL_MAKE_OPTION)
+	TZ=$(TZ) $(PREBUILT_MAKE_PREFIX)$(MAKE) -C $(PRIVATE_DIR) $(KERNEL_MAKE_OPTION)
 	$(hide) $(call fixup-kernel-cmd-file,$(KERNEL_OUT)/arch/$(KERNEL_TARGET_ARCH)/boot/compressed/.piggy.xzkern.cmd)
 	# check the kernel image size
 	python device/mediatek/build/build/tools/check_kernel_size.py $(KERNEL_OUT) $(KERNEL_DIR) $(PROJECT_DTB_NAMES)
@@ -46,11 +58,11 @@ kernel-savedefconfig: $(TARGET_KERNEL_CONFIG)
 
 kernel-menuconfig:
 	$(hide) mkdir -p $(KERNEL_OUT)
-	$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) menuconfig
+	TZ=$(TZ) $(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) menuconfig
 
 menuconfig-kernel savedefconfig-kernel:
 	$(hide) mkdir -p $(KERNEL_OUT)
-	$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) $(patsubst %config-kernel,%config,$@)
+	TZ=$(TZ) $(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) $(patsubst %config-kernel,%config,$@)
 
 clean-kernel:
 	$(hide) rm -rf $(KERNEL_OUT) $(INSTALLED_KERNEL_TARGET)
