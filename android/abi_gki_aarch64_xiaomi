@@ -116,6 +116,8 @@
   __traceiter_android_vh_sched_setaffinity_early
   __traceiter_android_rvh_set_cpus_allowed_comm
   __traceiter_android_rvh_dequeue_task
+  __traceiter_android_vh_rwsem_direct_rsteal
+  __traceiter_android_vh_rwsem_optimistic_rspin
   __tracepoint_android_vh_rwsem_read_wait_start
   __tracepoint_android_vh_rwsem_write_wait_start
   __tracepoint_android_vh_mutex_wait_start
@@ -124,6 +126,8 @@
   __tracepoint_android_vh_sched_setaffinity_early
   __tracepoint_android_rvh_set_cpus_allowed_comm
   __tracepoint_android_rvh_dequeue_task
+  __tracepoint_android_vh_rwsem_direct_rsteal
+  __tracepoint_android_vh_rwsem_optimistic_rspin
   cpuset_cpus_allowed
   cpufreq_update_policy
   cgroup_threadgroup_rwsem
@@ -160,6 +164,10 @@
   __tracepoint_android_vh_alloc_uid
   free_uid
   find_user
+
+#required by dynamic_readahead.ko
+__traceiter_android_vh_page_cache_ra_order_bypass
+__tracepoint_android_vh_page_cache_ra_order_bypass
 
 #required by mi_freqwdg.ko
   __traceiter_android_vh_freq_qos_remove_request
@@ -324,6 +332,9 @@
   __generic_file_write_iter
   __module_put_and_kthread_exit
   __page_file_index
+  blk_mq_quiesce_tagset
+  blk_mq_unquiesce_tagset
+
 
 # required by tls.ko
   tcp_rate_check_app_limited
@@ -455,6 +466,14 @@ __tracepoint_android_vh_get_folio_trylock_result
 __traceiter_android_vh_do_folio_trylock
 __tracepoint_android_vh_do_folio_trylock
 reclaim_pages
+
+#required by mi_rmap_efficiency.ko
+__traceiter_android_vh_page_should_be_protected
+__tracepoint_android_vh_page_should_be_protected
+__traceiter_android_vh_page_referenced_check_bypass
+__tracepoint_android_vh_page_referenced_check_bypass
+folio_total_mapcount
+
 __tracepoint_android_vh_alloc_flags_cma_adjust
 __traceiter_android_vh_alloc_flags_cma_adjust
 

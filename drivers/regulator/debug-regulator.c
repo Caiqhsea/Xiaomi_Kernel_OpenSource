@@ -640,11 +640,11 @@ static void regulator_debug_print_enabled(struct regulator_dev *rdev)
 		else
 			supply_name = "(null)-(null)";
 
-		pr_info("  %-32s %d   %8d %8d %8d\n", supply_name,
-			reg->enable_count,
-			reg->voltage[PM_SUSPEND_ON].min_uV,
-			reg->voltage[PM_SUSPEND_ON].max_uV,
-			reg->uA_load);
+			pr_info("  %-32s %d   %8d %8d %8d\n", supply_name,
+				reg->enable_count,
+				reg->voltage[PM_SUSPEND_ON].min_uV,
+				reg->voltage[PM_SUSPEND_ON].max_uV,
+				reg->uA_load);
 	}
 }
 
@@ -656,7 +656,7 @@ static void regulator_debug_suspend_trace_probe(void *unused,
 	if (start && val > 0 && !strcmp("machine_suspend", action)) {
 		pr_info("Enabled regulators:\n");
 		list_for_each_entry(dreg, &debug_reg_list, list)
-			regulator_debug_print_enabled(dreg->rdev);
+                  regulator_debug_print_enabled(dreg->rdev);
 	}
 }
 
@@ -718,7 +718,6 @@ static int __init regulator_debug_init(void)
 		pr_err("%s: unable to create regulator debug_suspend debugfs directory, ret=%d\n",
 			__func__, ret);
 	}
-
 	return 0;
 }
 module_init(regulator_debug_init);

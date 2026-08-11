@@ -51,6 +51,15 @@ unsigned int sysctl_sched_wake_up_idle[2];
 unsigned int sysctl_input_boost_ms;
 unsigned int sysctl_input_boost_freq[WALT_NR_CPUS];
 unsigned int sysctl_sched_boost_on_input;
+//MIUI ADD: Performance_BoostFramework
+unsigned int sysctl_powerkey_input_boost_ms;
+unsigned int sysctl_powerkey_input_boost_freq[WALT_NR_CPUS];
+unsigned int sysctl_powerkey_sched_boost_on_input;
+
+unsigned int sysctl_volkey_input_boost_ms;
+unsigned int sysctl_volkey_input_boost_freq[WALT_NR_CPUS];
+unsigned int sysctl_volkey_sched_boost_on_input;
+//END Performance_BoostFramework
 unsigned int sysctl_sched_early_up[MAX_MARGIN_LEVELS];
 unsigned int sysctl_sched_early_down[MAX_MARGIN_LEVELS];
 
@@ -104,6 +113,8 @@ unsigned int sysctl_legacy_freq_levels_cluster1[LEGACY_SMART_FREQ*2];
 unsigned int sysctl_legacy_freq_levels_cluster2[LEGACY_SMART_FREQ*2];
 unsigned int sysctl_legacy_freq_levels_cluster3[LEGACY_SMART_FREQ*2];
 unsigned int sysctl_sched_walt_core_util[WALT_NR_CPUS];
+unsigned int sysctl_disable_minfreq_pause;
+unsigned int sysctl_sched_storage_boost_disable;
 unsigned int sysctl_pipeline_busy_boost_pct;
 unsigned int sysctl_sched_lrpb_active_ms[NUM_PIPELINE_BUSY_THRES];
 unsigned int sysctl_cluster01_load_sync[NUM_LOAD_SYNC_SETTINGS];
@@ -127,12 +138,16 @@ unsigned int load_sync_low_pct_60fps[MAX_CLUSTERS][MAX_CLUSTERS];
 unsigned int load_sync_high_pct[MAX_CLUSTERS][MAX_CLUSTERS];
 unsigned int load_sync_high_pct_60fps[MAX_CLUSTERS][MAX_CLUSTERS];
 unsigned int sysctl_force_frequent_yielder;
+//MIUI ADD: Performance_BoostFramework
+unsigned int sysctl_disable_mvp_thres = 60000;
+//END Performance_BoostFramework
 unsigned int sysctl_pipeline_special_task_util_thres;
 unsigned int sysctl_pipeline_non_special_task_util_thres;
 unsigned int sysctl_pipeline_pin_thres_low_pct;
 unsigned int sysctl_pipeline_pin_thres_high_pct;
 unsigned int sysctl_pipeline_rearrange_delay_ms[2] = {100, 4};
 unsigned int sysctl_single_thread_pipeline;
+unsigned int sysctl_pipeline_swap_util_th = 100;
 
 /* range is [1 .. INT_MAX] */
 static int sysctl_task_read_pid = 1;
@@ -1038,6 +1053,53 @@ unlock_mutex:
 	mutex_unlock(&load_sync_mutex);
 	return ret;
 }
+//MIUI ADD: Task_Attribute_Sched
+static int sys_miui_power_enhance_handler(struct ctl_table *table, int write,
+					       void __user *buffer, size_t *lenp,
+					       loff_t *ppos)
+{
+	int ret;
+	struct walt_sched_cluster *cluster;
+	ret = proc_douintvec_minmax(table, write, buffer, lenp, ppos);
+	if (ret)
+		goto unlock_mutex;
+
+	if(miui_power_enhance_feat(MIUI_POWER_ENHANCE_TRAILBLAZER))
+		debugfs_walt_features &= ~WALT_FEAT_TRAILBLAZER_BIT;
+	else
+		debugfs_walt_features |= WALT_FEAT_TRAILBLAZER_BIT;
+	if(miui_power_enhance_feat(MIUI_POWER_ENHANCE_IPC))
+	{
+		for_each_sched_cluster(cluster) {
+			if(cluster->id == (num_sched_clusters - 1))
+			{
+				sysctl_ipc_freq_levels_cluster1[0] = 2841600;
+				sysctl_ipc_freq_levels_cluster1[1] = 3513600;
+				sysctl_ipc_freq_levels_cluster1[2] = 4100000;
+				sysctl_ipc_freq_levels_cluster1[3] = 4200000;
+				sysctl_ipc_freq_levels_cluster1[4] = 2147483647;
+				sched_smart_freq_level_update_by_cluser(cluster, sysctl_ipc_freq_levels_cluster1);
+			}
+		}
+	}
+	else
+	{
+		for_each_sched_cluster(cluster) {
+			if(cluster->id == (num_sched_clusters - 1))
+			{
+				sysctl_ipc_freq_levels_cluster1[0] = 3513600;
+				sysctl_ipc_freq_levels_cluster1[1] = 3800000;
+				sysctl_ipc_freq_levels_cluster1[2] = 4100000;
+				sysctl_ipc_freq_levels_cluster1[3] = 4200000;
+				sysctl_ipc_freq_levels_cluster1[4] = 2147483647;
+				sched_smart_freq_level_update_by_cluser(cluster, sysctl_ipc_freq_levels_cluster1);
+			}
+		}
+	}
+unlock_mutex:
+	return ret;
+}
+//END Task_Attribute_Sched
 
 #endif /* CONFIG_PROC_SYSCTL */
 
@@ -1318,6 +1380,63 @@ static struct ctl_table smart_freq_cluster3[] = {
 };
 
 static struct ctl_table input_boost_sysctls[] = {
+//MIUI ADD: Performance_BoostFramework
+	{
+		.procname	= "powerkey_input_boost_ms",
+		.data		= &sysctl_powerkey_input_boost_ms,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &one_hundred_thousand,
+	},
+	{
+		.procname	= "powerkey_input_boost_freq",
+		.data		= &sysctl_powerkey_input_boost_freq,
+		.maxlen		= sizeof(unsigned int) * 8,
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+	{
+		.procname	= "powerkey_sched_boost_on_input",
+		.data		= &sysctl_powerkey_sched_boost_on_input,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+
+	{
+		.procname	= "volkey_input_boost_ms",
+		.data		= &sysctl_volkey_input_boost_ms,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &one_hundred_thousand,
+	},
+	{
+		.procname	= "volkey_input_boost_freq",
+		.data		= &sysctl_volkey_input_boost_freq,
+		.maxlen		= sizeof(unsigned int) * 8,
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+	{
+		.procname	= "volkey_sched_boost_on_input",
+		.data		= &sysctl_volkey_sched_boost_on_input,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+//END Performance_BoostFramework
 	{
 		.procname	= "input_boost_ms",
 		.data		= &sysctl_input_boost_ms,
@@ -1840,6 +1959,28 @@ static struct ctl_table walt_table[] = {
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &max_nr_pipeline,
 	},
+//MIUI ADD: Performance_BoostFramework
+	{
+		.procname	= "sched_disable_mvp_thres",
+		.data		= &sysctl_disable_mvp_thres,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+//END Performance_BoostFramework
+//MIUI ADD: Task_Attribute_Sched
+    {
+		.procname	= "sys_miui_power_enhance",
+		.data		= &miui_power_enhance,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sys_miui_power_enhance_handler,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+    },
+//END Task_Attribute_Sched
 	{
 		.procname	= "sched_sbt_enable",
 		.data		= &sysctl_sched_sbt_enable,
@@ -1925,6 +2066,15 @@ static struct ctl_table walt_table[] = {
 		.extra2		= SYSCTL_INT_MAX,
 	},
 	{
+		.procname	= "sched_disable_minfreq_pause",
+		.data		= &sysctl_disable_minfreq_pause,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0664,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+	{
 		.procname	= "sched_pipeline_busy_boost_pct",
 		.data		= &sysctl_pipeline_busy_boost_pct,
 		.maxlen		= sizeof(unsigned int),
@@ -1939,6 +2089,15 @@ static struct ctl_table walt_table[] = {
 		.maxlen		= sizeof(unsigned int) * NUM_PIPELINE_BUSY_THRES,
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
+	},
+	{
+		.procname	= "sched_storage_boost_disable",
+		.data		= &sysctl_sched_storage_boost_disable,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_INT_MAX,
 	},
@@ -2019,6 +2178,15 @@ static struct ctl_table walt_table[] = {
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
+	},
+	{
+		.procname	= "sched_pipeline_swap_util_th",
+		.data		= &sysctl_pipeline_swap_util_th,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0444,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_INT_MAX,
 	},
 	{ }
 };

@@ -29,3 +29,8 @@ obj-$(CONFIG_PI433)		+= pi433/
 obj-$(CONFIG_XIL_AXIS_FIFO)	+= axis-fifo/
 obj-$(CONFIG_FIELDBUS_DEV)     += fieldbus/
 obj-$(CONFIG_QLGE)		+= qlge/
+obj-$(CONFIG_BINDER_PRIO) 	+= binder_prio/
+#MIUI ADD: MiSight_LogEnhance
+# END MiSight_LogEnhance
+# MIUI ADD: Performance_UnfairMem
+# END Performance_UnfairMem

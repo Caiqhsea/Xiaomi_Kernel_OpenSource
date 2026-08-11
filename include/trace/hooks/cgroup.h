@@ -6,6 +6,9 @@
 #if !defined(_TRACE_HOOK_CGROUP_H) || defined(TRACE_HEADER_MULTI_READ)
 #define _TRACE_HOOK_CGROUP_H
 #include <trace/hooks/vendor_hooks.h>
+// MIUI ADD: Performance_TurboSched
+#include <linux/cgroup-defs.h>
+// END Performance_TurboSched
 
 struct task_struct;
 struct cgroup_taskset;

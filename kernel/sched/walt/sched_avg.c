@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012, 2015-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /*
@@ -20,6 +20,7 @@ static DEFINE_PER_CPU(u64, nr_prod_sum);
 static DEFINE_PER_CPU(u64, last_time);
 static DEFINE_PER_CPU(int, last_time_cpu);
 static DEFINE_PER_CPU(u64, nr_big_prod_sum);
+static DEFINE_PER_CPU(u64, nr_giant_prod_sum);
 static DEFINE_PER_CPU(u64, nr_trailblazer_prod_sum);
 static DEFINE_PER_CPU(u64, nr);
 static DEFINE_PER_CPU(u64, nr_max);
@@ -80,7 +81,7 @@ struct sched_avg_stats *sched_get_nr_running_avg(void)
 	int cpu;
 	u64 curr_time = sched_clock();
 	u64 period = curr_time - last_get_time;
-	u64 tmp_nr, tmp_misfit, tmp_trailblazer;
+	u64 tmp_nr, tmp_misfit, tmp_trailblazer, tmp_giant;
 	bool any_hyst_time = false;
 	struct walt_sched_cluster *cluster;
 	bool trailblazer_cpu = false;
@@ -118,6 +119,10 @@ struct sched_avg_stats *sched_get_nr_running_avg(void)
 		tmp_trailblazer += walt_trailblazer_tasks(cpu) * diff;
 		tmp_trailblazer = div64_u64((tmp_trailblazer * 100), period);
 
+		tmp_giant = per_cpu(nr_giant_prod_sum, cpu);
+		tmp_giant += walt_giant_tasks(cpu) * diff;
+		tmp_giant = div64_u64((tmp_giant * 100), period);
+
 		/*
 		 * NR_THRESHOLD_PCT is to make sure that the task ran
 		 * at least 85% in the last window to compensate any
@@ -129,19 +134,23 @@ struct sched_avg_stats *sched_get_nr_running_avg(void)
 						NR_THRESHOLD_PCT), 100);
 		trailblazer_cpu |= (int)div64_u64((tmp_trailblazer +
 						NR_THRESHOLD_PCT), 100);
+		stats[cpu].nr_giant = (int)div64_u64((tmp_giant +
+						NR_THRESHOLD_PCT), 100);
 
 		stats[cpu].nr_max = per_cpu(nr_max, cpu);
 		stats[cpu].nr_scaled = tmp_nr;
 
 		trace_sched_get_nr_running_avg(cpu, stats[cpu].nr,
 				stats[cpu].nr_misfit, stats[cpu].nr_max,
-				stats[cpu].nr_scaled, trailblazer_cpu);
+				stats[cpu].nr_scaled, stats[cpu].nr_giant, 
+				trailblazer_cpu);
 
 		per_cpu(last_time, cpu) = curr_time;
 		per_cpu(last_time_cpu, cpu) = raw_smp_processor_id();
 		per_cpu(nr_prod_sum, cpu) = 0;
 		per_cpu(nr_big_prod_sum, cpu) = 0;
 		per_cpu(nr_trailblazer_prod_sum, cpu) = 0;
+		per_cpu(nr_giant_prod_sum, cpu) = 0;
 		per_cpu(nr_max, cpu) = per_cpu(nr, cpu);
 
 		spin_unlock_irqrestore(&per_cpu(nr_lock, cpu), flags);
@@ -225,7 +234,9 @@ static inline void update_busy_hyst_end_time(int cpu, int enq,
 	bool hyst_trigger, coloc_trigger;
 	bool dequeue = (enq < 0);
 
-	if (is_max_possible_cluster_cpu(cpu) && is_obet)
+	if (is_max_possible_cluster_cpu(cpu) && is_obet
+			&& (cpumask_weight(&cpu_array[0][num_sched_clusters - 1]) > 1
+			|| !pipeline_in_progress()))
 		return;
 
 	if (!per_cpu(hyst_time, cpu) && !per_cpu(coloc_hyst_time, cpu) &&
@@ -329,6 +340,7 @@ void sched_update_nr_prod(int cpu, int enq)
 	per_cpu(nr_prod_sum, cpu) += nr_running * diff;
 	per_cpu(nr_big_prod_sum, cpu) += walt_big_tasks(cpu) * diff;
 	per_cpu(nr_trailblazer_prod_sum, cpu) += (u64) walt_trailblazer_tasks(cpu) * diff;
+	per_cpu(nr_giant_prod_sum, cpu) += (u64) walt_giant_tasks(cpu) * diff;
 	spin_unlock_irqrestore(&per_cpu(nr_lock, cpu), flags);
 }
 

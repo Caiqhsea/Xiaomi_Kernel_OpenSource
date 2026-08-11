@@ -394,6 +394,10 @@ DECLARE_HOOK(android_vh_filemap_map_pages,
 	TP_PROTO(struct file *file, pgoff_t first_pgoff,
 		pgoff_t last_pgoff, vm_fault_t ret),
 	TP_ARGS(file, first_pgoff, last_pgoff, ret));
+DECLARE_HOOK(android_vh_filemap_map_pages_range,
+	TP_PROTO(struct file *file, pgoff_t orig_start_pgoff,
+		pgoff_t last_pgoff, vm_fault_t ret),
+	TP_ARGS(file, orig_start_pgoff, last_pgoff, ret));
 DECLARE_HOOK(android_vh_page_cache_readahead_start,
 	TP_PROTO(struct file *file, pgoff_t pgoff,
 		unsigned int size, bool sync),
@@ -447,6 +451,10 @@ DECLARE_HOOK(android_vh_swap_writepage,
 DECLARE_HOOK(android_vh_alloc_flags_cma_adjust,
 	TP_PROTO(gfp_t gfp_mask, unsigned int *alloc_flags),
 	TP_ARGS(gfp_mask, alloc_flags));
+DECLARE_HOOK(android_vh_page_cache_ra_order_bypass,
+	TP_PROTO(struct readahead_control *ractl, struct file_ra_state *ra,
+		 int new_order, gfp_t *gfp, bool *bypass),
+	TP_ARGS(ractl, ra, new_order, gfp, bypass));
 #endif /* _TRACE_HOOK_MM_H */
 
 /* This part must be outside protection */

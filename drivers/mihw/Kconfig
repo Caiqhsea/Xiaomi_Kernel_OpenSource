@@ -1,0 +1,20 @@
+config CFS_BANDWIDTH_MI
+	tristate "cfs bandwidth by xiaomi"
+	default n
+
+config MI_PERFMGR
+	tristate "Frame Energy Aware Scheduling"
+	help
+	  More power saving while meeting performance
+
+config MI_SPEED_TOUCH
+	tristate "mi speed touch"
+	depends on MIHW
+	help
+	  The case is used to monitor speed touch
+
+config MI_DCVS_ARBI
+        tristate "mi dcvs arbi"
+        default n
+        help
+          The case is used to manager multi voter clients of dcvs

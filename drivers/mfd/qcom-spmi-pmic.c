@@ -258,7 +258,6 @@ static const struct regmap_config spmi_regmap_can_sleep_config = {
 	.max_register	= 0xffff,
 	.fast_io	= false,
 };
-
 static int pmic_spmi_probe(struct spmi_device *sdev)
 {
 	struct device_node *root = sdev->dev.of_node;
@@ -296,7 +295,6 @@ static int pmic_spmi_probe(struct spmi_device *sdev)
 	mutex_unlock(&pmic_spmi_revid_lock);
 
 	devm_regmap_qti_debugfs_register(&sdev->dev, regmap);
-
 	return devm_of_platform_populate(&sdev->dev);
 }
 

@@ -274,6 +274,7 @@ static void walt_select_task_rq_rt(void *unused, struct task_struct *task, int c
 	    cpumask_test_cpu(this_cpu, task->cpus_ptr) &&
 	    cpumask_test_cpu(this_cpu, &wts->reduce_mask) &&
 	    walt_should_honor_rt_sync(this_cpu_rq, task, sync)) {
+
 		fastpath = SYNC_WAKEUP;
 		*new_cpu = this_cpu;
 		goto out;
@@ -320,7 +321,7 @@ static void walt_select_task_rq_rt(void *unused, struct task_struct *task, int c
 				cpu_active(packing_cpu) &&
 				!cpu_halted(packing_cpu) &&
 				(cpu_rq(packing_cpu)->rt.rt_nr_running <= 1))
-				break;
+                          	break;
 			packing_cpu++;
 		}
 
@@ -363,7 +364,6 @@ out:
 	trace_sched_select_task_rt(task, fastpath, *new_cpu, lowest_mask);
 }
 
-
 static void walt_rt_find_lowest_rq(void *unused, struct task_struct *task,
 				   struct cpumask *lowest_mask, int ret, int *best_cpu)
 
@@ -386,7 +386,7 @@ static void walt_rt_find_lowest_rq(void *unused, struct task_struct *task,
 				cpu_active(packing_cpu) &&
 				!cpu_halted(packing_cpu) &&
 				(cpu_rq(packing_cpu)->rt.rt_nr_running <= 2))
-				break;
+                          	break;
 			packing_cpu++;
 		}
 

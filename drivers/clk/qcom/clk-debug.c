@@ -497,6 +497,7 @@ exit:
 DEFINE_DEBUGFS_ATTRIBUTE(clk_measure_fops, clk_debug_measure_get,
 			 clk_debug_measure_set, "%lld\n");
 
+
 void clk_debug_measure_add(struct clk_hw *hw, struct dentry *dentry)
 {
 	debugfs_create_file("clk_measure", 0444, dentry, hw, &clk_measure_fops);
@@ -1037,6 +1038,7 @@ static int clk_debug_suspend_atomic_enable_set(void *data, u64 val)
 DEFINE_DEBUGFS_ATTRIBUTE(clk_debug_suspend_atomic_enable_fops,
 	clk_debug_suspend_atomic_enable_get, clk_debug_suspend_atomic_enable_set, "%llu\n");
 
+
 static void clk_hw_debug_remove(struct hw_debug_clk *dclk)
 {
 	if (dclk) {
@@ -1102,6 +1104,7 @@ int clk_debug_init(void)
 
 	debugfs_create_file("clk_enabled_list", 0444, rootdir,
 			    &clk_hw_debug_list, &clk_enabled_list_fops);
+
 
 	debugfs_create_file("trace_clocks", 0444, rootdir,
 			    &clk_hw_debug_list, &clk_enabled_trace_fops);

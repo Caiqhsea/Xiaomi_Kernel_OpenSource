@@ -57,7 +57,6 @@ static DEFINE_SPINLOCK(suspend_lock);
 static u64 suspend_time;
 static u64 suspend_start;
 static unsigned long acc_total, acc_relative_busy;
-
 /*
  * Returns GPU suspend time in millisecond.
  */
@@ -264,6 +263,52 @@ static int tz_init_ca(struct device *dev,
 	return ret;
 }
 
+static int tz_ca_boost(struct device *dev,
+	bool boost_flag)
+{
+	unsigned int tz_ca_data[2];
+	phys_addr_t paddr;
+	u8 *tz_buf;
+	int ret;
+	struct qtee_shm shm;
+
+	/* Set data for TZ */
+	tz_ca_data[0] = 0;
+	if (boost_flag)
+		tz_ca_data[1] = 0;
+	else
+		tz_ca_data[1] = 0xffffffff;
+
+	if (!qtee_shmbridge_is_enabled()) {
+		tz_buf = kzalloc(PAGE_ALIGN(sizeof(tz_ca_data)), GFP_KERNEL);
+		if (!tz_buf)
+			return -ENOMEM;
+		paddr = virt_to_phys(tz_buf);
+	} else {
+		ret = qtee_shmbridge_allocate_shm(
+				PAGE_ALIGN(sizeof(tz_ca_data)), &shm);
+		if (ret)
+			return -ENOMEM;
+		tz_buf = shm.vaddr;
+		paddr = shm.paddr;
+	}
+
+	memcpy(tz_buf, tz_ca_data, sizeof(tz_ca_data));
+	/* Ensure memcpy completes execution */
+	mb();
+	dma_sync_single_for_device(dev, paddr,
+		PAGE_ALIGN(sizeof(tz_ca_data)), DMA_BIDIRECTIONAL);
+
+	ret = qcom_scm_dcvs_init_ca_v2(paddr, sizeof(tz_ca_data));
+
+	if (!qtee_shmbridge_is_enabled())
+		kfree_sensitive(tz_buf);
+	else
+		qtee_shmbridge_free_shm(&shm);
+
+	return ret;
+}
+
 static int tz_init(struct device *dev, struct devfreq_msm_adreno_tz_data *priv,
 			unsigned int *tz_pwrlevels, u32 size_pwrlevels,
 			unsigned int *version, u32 size_version)
@@ -305,6 +350,19 @@ static int tz_init(struct device *dev, struct devfreq_msm_adreno_tz_data *priv,
 			qtee_shmbridge_free_shm(&shm);
 	} else
 		ret = -EINVAL;
+
+	/* Special case to set dcvs boost through context aware init with empty data */
+	if (!ret) {
+		if (priv->is_64 && qcom_scm_dcvs_ca_available()) {
+			ret = tz_ca_boost(dev, true);
+			if (ret) {
+				pr_warn(TAG "tz: DCVS boost hint init failed\n");
+				ret = 0;
+			}
+		} else {
+			pr_warn(TAG "tz: context aware DCVS boost not supported\n");
+		}
+	}
 
 	 /* Initialize context aware feature, if enabled. */
 	if (!ret && priv->ctxt_aware_enable) {
@@ -349,10 +407,8 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq)
 	int val, level = 0;
 	int context_count = 0;
 	u64 busy_time;
-
 	if (!priv)
 		return 0;
-
 	/* keeps stats.private_data == NULL   */
 	result = devfreq_update_stats(devfreq);
 	if (result) {
@@ -371,7 +427,6 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq)
 	stats->busy_time = min_t(u64, busy_time, stats->total_time);
 
 	priv->bin.busy_time += stats->busy_time;
-
 	if (stats->private_data)
 		context_count =  *((int *)stats->private_data);
 
@@ -561,6 +616,12 @@ static struct devfreq_governor msm_adreno_tz = {
 	.event_handler = tz_handler,
 	.flags = DEVFREQ_GOV_FLAG_IMMUTABLE,
 };
+
+int msm_adreno_tz_set_dcvs_boost(struct devfreq *devfreq, bool boost)
+{
+	return tz_ca_boost(&devfreq->dev, boost);
+}
+EXPORT_SYMBOL_GPL(msm_adreno_tz_set_dcvs_boost);
 
 int msm_adreno_tz_reinit(struct devfreq *devfreq)
 {

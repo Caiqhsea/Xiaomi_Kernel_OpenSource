@@ -11,7 +11,6 @@
  * Released under the terms of GNU General Public License Version 2.0
  *
  */
-
 #define KMSG_COMPONENT "zram"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
@@ -33,7 +32,10 @@
 #include <linux/debugfs.h>
 #include <linux/cpuhotplug.h>
 #include <linux/part_stat.h>
-
+#include <linux/sched.h>
+#include <linux/sched/signal.h>
+#include <linux/memcontrol.h>
+#include <linux/vmstat.h>
 #include "zram_drv.h"
 
 static DEFINE_IDR(zram_index_idr);
@@ -52,7 +54,6 @@ static unsigned int num_devices = 1;
 static size_t huge_class_size;
 
 static const struct block_device_operations zram_devops;
-
 static void zram_free_page(struct zram *zram, size_t index);
 static int zram_read_page(struct zram *zram, struct page *page, u32 index,
 			  struct bio *parent);
@@ -293,9 +294,6 @@ static void mark_idle(struct zram *zram, ktime_t cutoff)
 		zram_slot_lock(zram, index);
 		if (zram_allocated(zram, index) &&
 				!zram_test_flag(zram, index, ZRAM_UNDER_WB)) {
-#ifdef CONFIG_ZRAM_MEMORY_TRACKING
-			is_idle = !cutoff || ktime_after(cutoff, zram->table[index].ac_time);
-#endif
 			if (is_idle)
 				zram_set_flag(zram, index, ZRAM_IDLE);
 		}
@@ -341,485 +339,6 @@ out:
 	return rv;
 }
 
-#ifdef CONFIG_ZRAM_WRITEBACK
-static ssize_t writeback_limit_enable_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len)
-{
-	struct zram *zram = dev_to_zram(dev);
-	u64 val;
-	ssize_t ret = -EINVAL;
-
-	if (kstrtoull(buf, 10, &val))
-		return ret;
-
-	down_read(&zram->init_lock);
-	spin_lock(&zram->wb_limit_lock);
-	zram->wb_limit_enable = val;
-	spin_unlock(&zram->wb_limit_lock);
-	up_read(&zram->init_lock);
-	ret = len;
-
-	return ret;
-}
-
-static ssize_t writeback_limit_enable_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	bool val;
-	struct zram *zram = dev_to_zram(dev);
-
-	down_read(&zram->init_lock);
-	spin_lock(&zram->wb_limit_lock);
-	val = zram->wb_limit_enable;
-	spin_unlock(&zram->wb_limit_lock);
-	up_read(&zram->init_lock);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
-}
-
-static ssize_t writeback_limit_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len)
-{
-	struct zram *zram = dev_to_zram(dev);
-	u64 val;
-	ssize_t ret = -EINVAL;
-
-	if (kstrtoull(buf, 10, &val))
-		return ret;
-
-	down_read(&zram->init_lock);
-	spin_lock(&zram->wb_limit_lock);
-	zram->bd_wb_limit = val;
-	spin_unlock(&zram->wb_limit_lock);
-	up_read(&zram->init_lock);
-	ret = len;
-
-	return ret;
-}
-
-static ssize_t writeback_limit_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	u64 val;
-	struct zram *zram = dev_to_zram(dev);
-
-	down_read(&zram->init_lock);
-	spin_lock(&zram->wb_limit_lock);
-	val = zram->bd_wb_limit;
-	spin_unlock(&zram->wb_limit_lock);
-	up_read(&zram->init_lock);
-
-	return scnprintf(buf, PAGE_SIZE, "%llu\n", val);
-}
-
-static void reset_bdev(struct zram *zram)
-{
-	struct block_device *bdev;
-
-	if (!zram->backing_dev)
-		return;
-
-	bdev = zram->bdev;
-	blkdev_put(bdev, zram);
-	/* hope filp_close flush all of IO */
-	filp_close(zram->backing_dev, NULL);
-	zram->backing_dev = NULL;
-	zram->bdev = NULL;
-	zram->disk->fops = &zram_devops;
-	kvfree(zram->bitmap);
-	zram->bitmap = NULL;
-}
-
-static ssize_t backing_dev_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct file *file;
-	struct zram *zram = dev_to_zram(dev);
-	char *p;
-	ssize_t ret;
-
-	down_read(&zram->init_lock);
-	file = zram->backing_dev;
-	if (!file) {
-		memcpy(buf, "none\n", 5);
-		up_read(&zram->init_lock);
-		return 5;
-	}
-
-	p = file_path(file, buf, PAGE_SIZE - 1);
-	if (IS_ERR(p)) {
-		ret = PTR_ERR(p);
-		goto out;
-	}
-
-	ret = strlen(p);
-	memmove(buf, p, ret);
-	buf[ret++] = '\n';
-out:
-	up_read(&zram->init_lock);
-	return ret;
-}
-
-static ssize_t backing_dev_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len)
-{
-	char *file_name;
-	size_t sz;
-	struct file *backing_dev = NULL;
-	struct inode *inode;
-	struct address_space *mapping;
-	unsigned int bitmap_sz;
-	unsigned long nr_pages, *bitmap = NULL;
-	struct block_device *bdev = NULL;
-	int err;
-	struct zram *zram = dev_to_zram(dev);
-
-	file_name = kmalloc(PATH_MAX, GFP_KERNEL);
-	if (!file_name)
-		return -ENOMEM;
-
-	down_write(&zram->init_lock);
-	if (init_done(zram)) {
-		pr_info("Can't setup backing device for initialized device\n");
-		err = -EBUSY;
-		goto out;
-	}
-
-	strscpy(file_name, buf, PATH_MAX);
-	/* ignore trailing newline */
-	sz = strlen(file_name);
-	if (sz > 0 && file_name[sz - 1] == '\n')
-		file_name[sz - 1] = 0x00;
-
-	backing_dev = filp_open_block(file_name, O_RDWR|O_LARGEFILE, 0);
-	if (IS_ERR(backing_dev)) {
-		err = PTR_ERR(backing_dev);
-		backing_dev = NULL;
-		goto out;
-	}
-
-	mapping = backing_dev->f_mapping;
-	inode = mapping->host;
-
-	/* Support only block device in this moment */
-	if (!S_ISBLK(inode->i_mode)) {
-		err = -ENOTBLK;
-		goto out;
-	}
-
-	bdev = blkdev_get_by_dev(inode->i_rdev, BLK_OPEN_READ | BLK_OPEN_WRITE,
-				 zram, NULL);
-	if (IS_ERR(bdev)) {
-		err = PTR_ERR(bdev);
-		bdev = NULL;
-		goto out;
-	}
-
-	nr_pages = i_size_read(inode) >> PAGE_SHIFT;
-	bitmap_sz = BITS_TO_LONGS(nr_pages) * sizeof(long);
-	bitmap = kvzalloc(bitmap_sz, GFP_KERNEL);
-	if (!bitmap) {
-		err = -ENOMEM;
-		goto out;
-	}
-
-	reset_bdev(zram);
-
-	zram->bdev = bdev;
-	zram->backing_dev = backing_dev;
-	zram->bitmap = bitmap;
-	zram->nr_pages = nr_pages;
-	up_write(&zram->init_lock);
-
-	pr_info("setup backing device %s\n", file_name);
-	kfree(file_name);
-
-	return len;
-out:
-	kvfree(bitmap);
-
-	if (bdev)
-		blkdev_put(bdev, zram);
-
-	if (backing_dev)
-		filp_close(backing_dev, NULL);
-
-	up_write(&zram->init_lock);
-
-	kfree(file_name);
-
-	return err;
-}
-
-static unsigned long alloc_block_bdev(struct zram *zram)
-{
-	unsigned long blk_idx = 1;
-retry:
-	/* skip 0 bit to confuse zram.handle = 0 */
-	blk_idx = find_next_zero_bit(zram->bitmap, zram->nr_pages, blk_idx);
-	if (blk_idx == zram->nr_pages)
-		return 0;
-
-	if (test_and_set_bit(blk_idx, zram->bitmap))
-		goto retry;
-
-	atomic64_inc(&zram->stats.bd_count);
-	return blk_idx;
-}
-
-static void free_block_bdev(struct zram *zram, unsigned long blk_idx)
-{
-	int was_set;
-
-	was_set = test_and_clear_bit(blk_idx, zram->bitmap);
-	WARN_ON_ONCE(!was_set);
-	atomic64_dec(&zram->stats.bd_count);
-}
-
-static void read_from_bdev_async(struct zram *zram, struct page *page,
-			unsigned long entry, struct bio *parent)
-{
-	struct bio *bio;
-
-	bio = bio_alloc(zram->bdev, 1, parent->bi_opf, GFP_NOIO);
-	bio->bi_iter.bi_sector = entry * (PAGE_SIZE >> 9);
-	__bio_add_page(bio, page, PAGE_SIZE, 0);
-	bio_chain(bio, parent);
-	submit_bio(bio);
-}
-
-#define PAGE_WB_SIG "page_index="
-
-#define PAGE_WRITEBACK			0
-#define HUGE_WRITEBACK			(1<<0)
-#define IDLE_WRITEBACK			(1<<1)
-#define INCOMPRESSIBLE_WRITEBACK	(1<<2)
-
-static ssize_t writeback_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len)
-{
-	struct zram *zram = dev_to_zram(dev);
-	unsigned long nr_pages = zram->disksize >> PAGE_SHIFT;
-	unsigned long index = 0;
-	struct bio bio;
-	struct bio_vec bio_vec;
-	struct page *page;
-	ssize_t ret = len;
-	int mode, err;
-	unsigned long blk_idx = 0;
-
-	if (sysfs_streq(buf, "idle"))
-		mode = IDLE_WRITEBACK;
-	else if (sysfs_streq(buf, "huge"))
-		mode = HUGE_WRITEBACK;
-	else if (sysfs_streq(buf, "huge_idle"))
-		mode = IDLE_WRITEBACK | HUGE_WRITEBACK;
-	else if (sysfs_streq(buf, "incompressible"))
-		mode = INCOMPRESSIBLE_WRITEBACK;
-	else {
-		if (strncmp(buf, PAGE_WB_SIG, sizeof(PAGE_WB_SIG) - 1))
-			return -EINVAL;
-
-		if (kstrtol(buf + sizeof(PAGE_WB_SIG) - 1, 10, &index) ||
-				index >= nr_pages)
-			return -EINVAL;
-
-		nr_pages = 1;
-		mode = PAGE_WRITEBACK;
-	}
-
-	down_read(&zram->init_lock);
-	if (!init_done(zram)) {
-		ret = -EINVAL;
-		goto release_init_lock;
-	}
-
-	if (!zram->backing_dev) {
-		ret = -ENODEV;
-		goto release_init_lock;
-	}
-
-	page = alloc_page(GFP_KERNEL);
-	if (!page) {
-		ret = -ENOMEM;
-		goto release_init_lock;
-	}
-
-	for (; nr_pages != 0; index++, nr_pages--) {
-		spin_lock(&zram->wb_limit_lock);
-		if (zram->wb_limit_enable && !zram->bd_wb_limit) {
-			spin_unlock(&zram->wb_limit_lock);
-			ret = -EIO;
-			break;
-		}
-		spin_unlock(&zram->wb_limit_lock);
-
-		if (!blk_idx) {
-			blk_idx = alloc_block_bdev(zram);
-			if (!blk_idx) {
-				ret = -ENOSPC;
-				break;
-			}
-		}
-
-		zram_slot_lock(zram, index);
-		if (!zram_allocated(zram, index))
-			goto next;
-
-		if (zram_test_flag(zram, index, ZRAM_WB) ||
-				zram_test_flag(zram, index, ZRAM_SAME) ||
-				zram_test_flag(zram, index, ZRAM_UNDER_WB))
-			goto next;
-
-		if (mode & IDLE_WRITEBACK &&
-		    !zram_test_flag(zram, index, ZRAM_IDLE))
-			goto next;
-		if (mode & HUGE_WRITEBACK &&
-		    !zram_test_flag(zram, index, ZRAM_HUGE))
-			goto next;
-		if (mode & INCOMPRESSIBLE_WRITEBACK &&
-		    !zram_test_flag(zram, index, ZRAM_INCOMPRESSIBLE))
-			goto next;
-
-		/*
-		 * Clearing ZRAM_UNDER_WB is duty of caller.
-		 * IOW, zram_free_page never clear it.
-		 */
-		zram_set_flag(zram, index, ZRAM_UNDER_WB);
-		/* Need for hugepage writeback racing */
-		zram_set_flag(zram, index, ZRAM_IDLE);
-		zram_slot_unlock(zram, index);
-		if (zram_read_page(zram, page, index, NULL)) {
-			zram_slot_lock(zram, index);
-			zram_clear_flag(zram, index, ZRAM_UNDER_WB);
-			zram_clear_flag(zram, index, ZRAM_IDLE);
-			zram_slot_unlock(zram, index);
-			continue;
-		}
-
-		bio_init(&bio, zram->bdev, &bio_vec, 1,
-			 REQ_OP_WRITE | REQ_SYNC);
-		bio.bi_iter.bi_sector = blk_idx * (PAGE_SIZE >> 9);
-		__bio_add_page(&bio, page, PAGE_SIZE, 0);
-
-		/*
-		 * XXX: A single page IO would be inefficient for write
-		 * but it would be not bad as starter.
-		 */
-		err = submit_bio_wait(&bio);
-		if (err) {
-			zram_slot_lock(zram, index);
-			zram_clear_flag(zram, index, ZRAM_UNDER_WB);
-			zram_clear_flag(zram, index, ZRAM_IDLE);
-			zram_slot_unlock(zram, index);
-			/*
-			 * BIO errors are not fatal, we continue and simply
-			 * attempt to writeback the remaining objects (pages).
-			 * At the same time we need to signal user-space that
-			 * some writes (at least one, but also could be all of
-			 * them) were not successful and we do so by returning
-			 * the most recent BIO error.
-			 */
-			ret = err;
-			continue;
-		}
-
-		atomic64_inc(&zram->stats.bd_writes);
-		/*
-		 * We released zram_slot_lock so need to check if the slot was
-		 * changed. If there is freeing for the slot, we can catch it
-		 * easily by zram_allocated.
-		 * A subtle case is the slot is freed/reallocated/marked as
-		 * ZRAM_IDLE again. To close the race, idle_store doesn't
-		 * mark ZRAM_IDLE once it found the slot was ZRAM_UNDER_WB.
-		 * Thus, we could close the race by checking ZRAM_IDLE bit.
-		 */
-		zram_slot_lock(zram, index);
-		if (!zram_allocated(zram, index) ||
-			  !zram_test_flag(zram, index, ZRAM_IDLE)) {
-			zram_clear_flag(zram, index, ZRAM_UNDER_WB);
-			zram_clear_flag(zram, index, ZRAM_IDLE);
-			goto next;
-		}
-
-		zram_free_page(zram, index);
-		zram_clear_flag(zram, index, ZRAM_UNDER_WB);
-		zram_set_flag(zram, index, ZRAM_WB);
-		zram_set_element(zram, index, blk_idx);
-		blk_idx = 0;
-		atomic64_inc(&zram->stats.pages_stored);
-		spin_lock(&zram->wb_limit_lock);
-		if (zram->wb_limit_enable && zram->bd_wb_limit > 0)
-			zram->bd_wb_limit -=  1UL << (PAGE_SHIFT - 12);
-		spin_unlock(&zram->wb_limit_lock);
-next:
-		zram_slot_unlock(zram, index);
-	}
-
-	if (blk_idx)
-		free_block_bdev(zram, blk_idx);
-	__free_page(page);
-release_init_lock:
-	up_read(&zram->init_lock);
-
-	return ret;
-}
-
-struct zram_work {
-	struct work_struct work;
-	struct zram *zram;
-	unsigned long entry;
-	struct page *page;
-	int error;
-};
-
-static void zram_sync_read(struct work_struct *work)
-{
-	struct zram_work *zw = container_of(work, struct zram_work, work);
-	struct bio_vec bv;
-	struct bio bio;
-
-	bio_init(&bio, zw->zram->bdev, &bv, 1, REQ_OP_READ);
-	bio.bi_iter.bi_sector = zw->entry * (PAGE_SIZE >> 9);
-	__bio_add_page(&bio, zw->page, PAGE_SIZE, 0);
-	zw->error = submit_bio_wait(&bio);
-}
-
-/*
- * Block layer want one ->submit_bio to be active at a time, so if we use
- * chained IO with parent IO in same context, it's a deadlock. To avoid that,
- * use a worker thread context.
- */
-static int read_from_bdev_sync(struct zram *zram, struct page *page,
-				unsigned long entry)
-{
-	struct zram_work work;
-
-	work.page = page;
-	work.zram = zram;
-	work.entry = entry;
-
-	INIT_WORK_ONSTACK(&work.work, zram_sync_read);
-	queue_work(system_unbound_wq, &work.work);
-	flush_work(&work.work);
-	destroy_work_on_stack(&work.work);
-
-	return work.error;
-}
-
-static int read_from_bdev(struct zram *zram, struct page *page,
-			unsigned long entry, struct bio *parent)
-{
-	atomic64_inc(&zram->stats.bd_reads);
-	if (!parent) {
-		if (WARN_ON_ONCE(!IS_ENABLED(ZRAM_PARTIAL_IO)))
-			return -EIO;
-		return read_from_bdev_sync(zram, page, entry);
-	}
-	read_from_bdev_async(zram, page, entry, parent);
-	return 0;
-}
-#else
 static inline void reset_bdev(struct zram *zram) {};
 static int read_from_bdev(struct zram *zram, struct page *page,
 			unsigned long entry, struct bio *parent)
@@ -828,109 +347,7 @@ static int read_from_bdev(struct zram *zram, struct page *page,
 }
 
 static void free_block_bdev(struct zram *zram, unsigned long blk_idx) {};
-#endif
 
-#ifdef CONFIG_ZRAM_MEMORY_TRACKING
-
-static struct dentry *zram_debugfs_root;
-
-static void zram_debugfs_create(void)
-{
-	zram_debugfs_root = debugfs_create_dir("zram", NULL);
-}
-
-static void zram_debugfs_destroy(void)
-{
-	debugfs_remove_recursive(zram_debugfs_root);
-}
-
-static void zram_accessed(struct zram *zram, u32 index)
-{
-	zram_clear_flag(zram, index, ZRAM_IDLE);
-	zram->table[index].ac_time = ktime_get_boottime();
-}
-
-static ssize_t read_block_state(struct file *file, char __user *buf,
-				size_t count, loff_t *ppos)
-{
-	char *kbuf;
-	ssize_t index, written = 0;
-	struct zram *zram = file->private_data;
-	unsigned long nr_pages = zram->disksize >> PAGE_SHIFT;
-	struct timespec64 ts;
-
-	kbuf = kvmalloc(count, GFP_KERNEL);
-	if (!kbuf)
-		return -ENOMEM;
-
-	down_read(&zram->init_lock);
-	if (!init_done(zram)) {
-		up_read(&zram->init_lock);
-		kvfree(kbuf);
-		return -EINVAL;
-	}
-
-	for (index = *ppos; index < nr_pages; index++) {
-		int copied;
-
-		zram_slot_lock(zram, index);
-		if (!zram_allocated(zram, index))
-			goto next;
-
-		ts = ktime_to_timespec64(zram->table[index].ac_time);
-		copied = snprintf(kbuf + written, count,
-			"%12zd %12lld.%06lu %c%c%c%c%c%c\n",
-			index, (s64)ts.tv_sec,
-			ts.tv_nsec / NSEC_PER_USEC,
-			zram_test_flag(zram, index, ZRAM_SAME) ? 's' : '.',
-			zram_test_flag(zram, index, ZRAM_WB) ? 'w' : '.',
-			zram_test_flag(zram, index, ZRAM_HUGE) ? 'h' : '.',
-			zram_test_flag(zram, index, ZRAM_IDLE) ? 'i' : '.',
-			zram_get_priority(zram, index) ? 'r' : '.',
-			zram_test_flag(zram, index,
-				       ZRAM_INCOMPRESSIBLE) ? 'n' : '.');
-
-		if (count <= copied) {
-			zram_slot_unlock(zram, index);
-			break;
-		}
-		written += copied;
-		count -= copied;
-next:
-		zram_slot_unlock(zram, index);
-		*ppos += 1;
-	}
-
-	up_read(&zram->init_lock);
-	if (copy_to_user(buf, kbuf, written))
-		written = -EFAULT;
-	kvfree(kbuf);
-
-	return written;
-}
-
-static const struct file_operations proc_zram_block_state_op = {
-	.open = simple_open,
-	.read = read_block_state,
-	.llseek = default_llseek,
-};
-
-static void zram_debugfs_register(struct zram *zram)
-{
-	if (!zram_debugfs_root)
-		return;
-
-	zram->debugfs_dir = debugfs_create_dir(zram->disk->disk_name,
-						zram_debugfs_root);
-	debugfs_create_file("block_state", 0400, zram->debugfs_dir,
-				zram, &proc_zram_block_state_op);
-}
-
-static void zram_debugfs_unregister(struct zram *zram)
-{
-	debugfs_remove_recursive(zram->debugfs_dir);
-}
-#else
 static void zram_debugfs_create(void) {};
 static void zram_debugfs_destroy(void) {};
 static void zram_accessed(struct zram *zram, u32 index)
@@ -939,7 +356,6 @@ static void zram_accessed(struct zram *zram, u32 index)
 };
 static void zram_debugfs_register(struct zram *zram) {};
 static void zram_debugfs_unregister(struct zram *zram) {};
-#endif
 
 /*
  * We switched to per-cpu streams and this attr is not needed anymore.
@@ -1170,26 +586,6 @@ static ssize_t mm_stat_show(struct device *dev,
 	return ret;
 }
 
-#ifdef CONFIG_ZRAM_WRITEBACK
-#define FOUR_K(x) ((x) * (1 << (PAGE_SHIFT - 12)))
-static ssize_t bd_stat_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct zram *zram = dev_to_zram(dev);
-	ssize_t ret;
-
-	down_read(&zram->init_lock);
-	ret = scnprintf(buf, PAGE_SIZE,
-		"%8llu %8llu %8llu\n",
-			FOUR_K((u64)atomic64_read(&zram->stats.bd_count)),
-			FOUR_K((u64)atomic64_read(&zram->stats.bd_reads)),
-			FOUR_K((u64)atomic64_read(&zram->stats.bd_writes)));
-	up_read(&zram->init_lock);
-
-	return ret;
-}
-#endif
-
 static ssize_t debug_stat_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1210,9 +606,6 @@ static ssize_t debug_stat_show(struct device *dev,
 
 static DEVICE_ATTR_RO(io_stat);
 static DEVICE_ATTR_RO(mm_stat);
-#ifdef CONFIG_ZRAM_WRITEBACK
-static DEVICE_ATTR_RO(bd_stat);
-#endif
 static DEVICE_ATTR_RO(debug_stat);
 
 static void zram_meta_free(struct zram *zram, u64 disksize)
@@ -1226,6 +619,7 @@ static void zram_meta_free(struct zram *zram, u64 disksize)
 
 	zs_destroy_pool(zram->mem_pool);
 	vfree(zram->table);
+
 }
 
 static bool zram_meta_alloc(struct zram *zram, u64 disksize)
@@ -1257,9 +651,6 @@ static void zram_free_page(struct zram *zram, size_t index)
 {
 	unsigned long handle;
 
-#ifdef CONFIG_ZRAM_MEMORY_TRACKING
-	zram->table[index].ac_time = 0;
-#endif
 	if (zram_test_flag(zram, index, ZRAM_IDLE))
 		zram_clear_flag(zram, index, ZRAM_IDLE);
 
@@ -1358,8 +749,10 @@ static int zram_read_page(struct zram *zram, struct page *page, u32 index,
 			  struct bio *parent)
 {
 	int ret;
+	bool is_wb = false;
 
 	zram_slot_lock(zram, index);
+
 	if (!zram_test_flag(zram, index, ZRAM_WB)) {
 		/* Slot should be locked through out the function call */
 		ret = zram_read_from_zspool(zram, page, index);
@@ -1377,7 +770,8 @@ static int zram_read_page(struct zram *zram, struct page *page, u32 index,
 
 	/* Should NEVER happen. Return bio error if it does. */
 	if (WARN_ON(ret < 0))
-		pr_err("Decompression failed! err=%d, page=%u\n", ret, index);
+		pr_err("Decompression failed! err=%d, page=%u, is_wb=%d\n",
+			ret, index, is_wb);
 
 	return ret;
 }
@@ -1419,7 +813,6 @@ static int zram_write_page(struct zram *zram, struct page *page, u32 index)
 	struct zcomp_strm *zstrm;
 	unsigned long element = 0;
 	enum zram_pageflags flags = 0;
-
 	mem = kmap_atomic(page);
 	if (page_same_filled(mem, &element)) {
 		kunmap_atomic(mem);
@@ -1528,6 +921,7 @@ out:
 		zram_set_handle(zram, index, handle);
 		zram_set_obj_size(zram, index, comp_len);
 	}
+
 	zram_slot_unlock(zram, index);
 
 	/* Update stats */
@@ -2141,12 +1535,6 @@ static DEVICE_ATTR_WO(mem_used_max);
 static DEVICE_ATTR_WO(idle);
 static DEVICE_ATTR_RW(max_comp_streams);
 static DEVICE_ATTR_RW(comp_algorithm);
-#ifdef CONFIG_ZRAM_WRITEBACK
-static DEVICE_ATTR_RW(backing_dev);
-static DEVICE_ATTR_WO(writeback);
-static DEVICE_ATTR_RW(writeback_limit);
-static DEVICE_ATTR_RW(writeback_limit_enable);
-#endif
 #ifdef CONFIG_ZRAM_MULTI_COMP
 static DEVICE_ATTR_RW(recomp_algorithm);
 static DEVICE_ATTR_WO(recompress);
@@ -2162,17 +1550,8 @@ static struct attribute *zram_disk_attrs[] = {
 	&dev_attr_idle.attr,
 	&dev_attr_max_comp_streams.attr,
 	&dev_attr_comp_algorithm.attr,
-#ifdef CONFIG_ZRAM_WRITEBACK
-	&dev_attr_backing_dev.attr,
-	&dev_attr_writeback.attr,
-	&dev_attr_writeback_limit.attr,
-	&dev_attr_writeback_limit_enable.attr,
-#endif
 	&dev_attr_io_stat.attr,
 	&dev_attr_mm_stat.attr,
-#ifdef CONFIG_ZRAM_WRITEBACK
-	&dev_attr_bd_stat.attr,
-#endif
 	&dev_attr_debug_stat.attr,
 #ifdef CONFIG_ZRAM_MULTI_COMP
 	&dev_attr_recomp_algorithm.attr,
@@ -2202,9 +1581,6 @@ static int zram_add(void)
 	device_id = ret;
 
 	init_rwsem(&zram->init_lock);
-#ifdef CONFIG_ZRAM_WRITEBACK
-	spin_lock_init(&zram->wb_limit_lock);
-#endif
 
 	/* gendisk structure */
 	zram->disk = blk_alloc_disk(NUMA_NO_NODE);
@@ -2300,7 +1676,6 @@ static int zram_remove(struct zram *zram)
 		sync_blockdev(zram->disk->part0);
 		zram_reset_device(zram);
 	}
-
 	pr_info("Removed device: %s\n", zram->disk->disk_name);
 
 	del_gendisk(zram->disk);
@@ -2415,7 +1790,6 @@ static int __init zram_init(void)
 				      zcomp_cpu_up_prepare, zcomp_cpu_dead);
 	if (ret < 0)
 		return ret;
-
 	ret = class_register(&zram_control_class);
 	if (ret) {
 		pr_err("Unable to register zram-control class\n");

@@ -445,6 +445,11 @@ config CROSS_MEMORY_ATTACH
 	  to directly read from or write to another process' address space.
 	  See the man page for more details.
 
+config MI_PERFMGR_GPU
+	tristate "Frame Energy Aware Scheduling for gpu"
+	help
+	  perfmgr with gpu
+
 config USELIB
 	bool "uselib syscall (for libc5 and earlier)"
 	default ALPHA || M68K || SPARC
@@ -2009,6 +2014,14 @@ config ASN1
 	  that can be interpreted by the ASN.1 stream decoder and used to
 	  inform it as to what tags are to be expected in a stream and what
 	  functions to call on what tags.
+
+# MIUI ADD: Camera_CamSched
+config MI_CAM_WALT
+    bool "cam sched"
+	default n
+	help
+	  cam dyn
+# END Camera_CamSched
 
 source "kernel/Kconfig.locks"
 

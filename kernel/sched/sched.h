@@ -9,6 +9,9 @@
 #include <linux/sched/autogroup.h>
 #include <linux/sched/cpufreq.h>
 #include <linux/sched/deadline.h>
+// MIUI ADD: Performance_TurboSched
+#include <linux/sched/cputime.h>
+// END Performance_TurboSched
 #include <linux/sched.h>
 #include <linux/sched/loadavg.h>
 #include <linux/sched/mm.h>

@@ -28,7 +28,6 @@
 #define ZRAM_SECTOR_PER_LOGICAL_BLOCK	\
 	(1 << (ZRAM_LOGICAL_BLOCK_SHIFT - SECTOR_SHIFT))
 
-
 /*
  * ZRAM is mainly used for memory efficiency so we want to keep memory
  * footprint small and thus squeeze size and zram pageflags into a flags
@@ -69,9 +68,6 @@ struct zram_table_entry {
 		unsigned long element;
 	};
 	unsigned long flags;
-#ifdef CONFIG_ZRAM_MEMORY_TRACKING
-	ktime_t ac_time;
-#endif
 };
 
 struct zram_stats {
@@ -90,6 +86,9 @@ struct zram_stats {
 	atomic64_t bd_count;		/* no. of pages in backing device */
 	atomic64_t bd_reads;		/* no. of reads from backing device */
 	atomic64_t bd_writes;		/* no. of writes from backing device */
+	atomic64_t mf_bd_count;		/* no. of memory_freeze pages in backing device */
+	atomic64_t mf_bd_reads;		/* no. of memory_freeze reads from backing device */
+	atomic64_t mf_bd_writes;	/* no. of memory_freeze writes from backing device */
 #endif
 };
 
@@ -127,17 +126,7 @@ struct zram {
 	 * zram is claimed so open request will be failed
 	 */
 	bool claim; /* Protected by disk->open_mutex */
-#ifdef CONFIG_ZRAM_WRITEBACK
-	struct file *backing_dev;
-	spinlock_t wb_limit_lock;
-	bool wb_limit_enable;
-	u64 bd_wb_limit;
-	struct block_device *bdev;
-	unsigned long *bitmap;
-	unsigned long nr_pages;
-#endif
-#ifdef CONFIG_ZRAM_MEMORY_TRACKING
-	struct dentry *debugfs_dir;
-#endif
 };
+
 #endif
+

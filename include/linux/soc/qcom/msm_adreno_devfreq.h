@@ -78,8 +78,13 @@ typedef void(*getbw_func)(unsigned long *, unsigned long *, void *);
 
 #if IS_ENABLED(CONFIG_DEVFREQ_GOV_QCOM_ADRENO_TZ)
 int msm_adreno_tz_reinit(struct devfreq *devfreq);
+int msm_adreno_tz_set_dcvs_boost(struct devfreq *devfreq, bool val);
 #else
 static inline int msm_adreno_tz_reinit(struct devfreq *devfreq)
+{
+	return 0;
+}
+static inline int msm_adreno_tz_set_dcvs_boost(struct devfreq *devfreq, bool val)
 {
 	return 0;
 }

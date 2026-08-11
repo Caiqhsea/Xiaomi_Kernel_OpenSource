@@ -199,3 +199,9 @@ obj-$(CONFIG_DRM_ACCEL)		+= accel/
 obj-$(CONFIG_CDX_BUS)		+= cdx/
 
 obj-$(CONFIG_S390)		+= s390/
+
+obj-y         += rsmc/
+obj-y				+= xiaomi/
+obj-y				+= ntag/
+obj-$(CONFIG_MIHW)		+= mihw/
+obj-$(CONFIG_MI_RT_MONITOR)	+= sandbox/

@@ -2585,7 +2585,6 @@ static struct platform_driver sun_tlmm_driver = {
 	.driver = {
 		.name = "sun-pinctrl",
 		.of_match_table = sun_tlmm_of_match,
-		.pm = &noirq_msm_pinctrl_dev_pm_ops,
 	},
 	.probe = sun_tlmm_probe,
 	.remove = msm_pinctrl_remove,

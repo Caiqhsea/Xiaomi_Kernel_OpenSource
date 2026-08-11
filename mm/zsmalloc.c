@@ -443,7 +443,6 @@ static inline int get_zspage_inuse(struct zspage *zspage)
 	return zspage->inuse;
 }
 
-
 static inline void mod_zspage_inuse(struct zspage *zspage, int val)
 {
 	zspage->inuse += val;
@@ -655,7 +654,6 @@ static inline void zs_pool_stat_destroy(struct zs_pool *pool)
 {
 }
 #endif
-
 
 /*
  * For each size class, zspages are divided into different groups
@@ -1347,7 +1345,6 @@ static unsigned long obj_malloc(struct zs_pool *pool,
 	return obj;
 }
 
-
 /**
  * zs_malloc - Allocate block of given size from pool.
  * @pool: pool to allocate from
@@ -1390,8 +1387,8 @@ unsigned long zs_malloc(struct zs_pool *pool, size_t size, gfp_t gfp)
 	}
 
 	spin_unlock(&pool->lock);
-
 	zspage = alloc_zspage(pool, class, gfp);
+
 	if (!zspage) {
 		cache_free_handle(pool, handle);
 		return (unsigned long)ERR_PTR(-ENOMEM);
@@ -2323,7 +2320,7 @@ EXPORT_SYMBOL_GPL(zs_destroy_pool);
 static int __init zs_init(void)
 {
 	int ret;
-
+	pr_err("zhang entry zs_init");
 	ret = cpuhp_setup_state(CPUHP_MM_ZS_PREPARE, "mm/zsmalloc:prepare",
 				zs_cpu_prepare, zs_cpu_dead);
 	if (ret)

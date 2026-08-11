@@ -206,7 +206,6 @@ static ssize_t store_task_thres(struct cluster_data *state,
 	return count;
 }
 
-
 static ssize_t show_offline_delay_ms(const struct cluster_data *state,
 				     char *buf)
 {
@@ -870,7 +869,6 @@ static int compute_cluster_nr_misfit_assist(int index)
 	return nr_misfit_assist;
 }
 
-
 /**
  * cluster_real_big_tasks
  * @index: cluster index
@@ -990,6 +988,8 @@ static void update_running_avg(u64 window_start, u32 wakeup_ctr_sum)
 	unsigned int index = 0;
 	unsigned long flags;
 	int big_avg = 0;
+	int giant = 0;
+	int cpu;
 
 	nr_stats = sched_get_nr_running_avg();
 
@@ -1038,12 +1038,14 @@ static void update_running_avg(u64 window_start, u32 wakeup_ctr_sum)
 
 		cluster->nr_big = cluster_real_big_tasks(index);
 		big_avg += cluster->nr_big;
+		for_each_cpu(cpu, &cluster->cpu_mask)
+			giant += nr_stats[cpu].nr_giant;
 	}
 	spin_unlock_irqrestore(&state_lock, flags);
 
 	last_nr_big = big_avg;
 
-	walt_rotation_checkpoint(big_avg);
+	walt_rotation_checkpoint(window_start, giant);
 	/* Update the SMART freq configuration for NON-IPC reasons. */
 	smart_freq_update_reason_common(window_start, big_avg, wakeup_ctr_sum);
 }

@@ -535,6 +535,16 @@ static void lpg_calc_duty(struct lpg_channel *chan, uint64_t duty)
 			(u64)NSEC_PER_SEC * lpg_pre_divs[chan->pre_div_sel] * (1 << chan->pre_div_exp));
 
 	chan->pwm_value = min(val, max);
+	dev_err(chan->lpg->dev,
+		"LPG calc_duty: duty=%llu ns, clk_rate=%u, pre_div=%u, exp=%u, "
+		"val=%u, max=%u, pwm_value=%u\n",
+		duty,
+		clk_rate,
+		lpg_pre_divs[chan->pre_div_sel],
+		chan->pre_div_exp,
+		val,
+		max,
+		chan->pwm_value);
 }
 
 static void lpg_apply_freq(struct lpg_channel *chan)

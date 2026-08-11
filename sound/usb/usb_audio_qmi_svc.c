@@ -35,6 +35,7 @@
 #include "pcm.h"
 #include "power.h"
 #include "usb_audio_qmi_v01.h"
+#include "../../drivers/misc/hwid/hwid.h"
 
 #define BUS_INTERVAL_FULL_SPEED 1000 /* in us */
 #define BUS_INTERVAL_HIGHSPEED_AND_ABOVE 125 /* in us */
@@ -101,6 +102,7 @@ struct uaudio_dev {
 	int num_intf;
 	struct intf_info *info;
 	struct snd_usb_audio *chip;
+	bool disconnect_wq_init;
 };
 
 static struct uaudio_dev uadev[SNDRV_CARDS];
@@ -488,6 +490,10 @@ static void *find_csint_desc(unsigned char *descstart, int desclen, u8 dsubtype)
 	return NULL;
 }
 
+
+static int initialize_uadev_if_in_use(int card_num,
+		struct snd_usb_substream *subs, struct snd_usb_audio *chip);
+
 static int prepare_qmi_response(struct snd_usb_substream *subs,
 		struct qmi_uaudio_stream_req_msg_v01 *req_msg,
 		struct qmi_uaudio_stream_resp_msg_v01 *resp, int info_idx)
@@ -827,18 +833,9 @@ skip_sync:
 	chip = uadev[card_num].chip;
 
 	if (atomic_read(&uadev[card_num].in_use) == 1) {
-		init_waitqueue_head(&uadev[card_num].disconnect_wq);
-		uadev[card_num].num_intf =
-			subs->dev->config->desc.bNumInterfaces;
-		uadev[card_num].info = kcalloc(uadev[card_num].num_intf,
-			sizeof(struct intf_info), GFP_KERNEL);
-		if (!uadev[card_num].info) {
-			ret = -ENOMEM;
+		ret = initialize_uadev_if_in_use(card_num, subs, chip);
+		if (ret < 0)
 			goto unmap_sync;
-		}
-		mutex_lock(&chip->mutex);
-		uadev[card_num].udev = subs->dev;
-		mutex_unlock(&chip->mutex);
 	}
 
 	uadev[card_num].card_num = card_num;
@@ -883,6 +880,29 @@ drop_data_ep:
 			usb_pipe_endpoint(subs->dev, subs->data_endpoint->pipe));
 err:
 	return ret;
+}
+
+
+static int initialize_uadev_if_in_use(int card_num,
+		struct snd_usb_substream *subs, struct snd_usb_audio *chip)
+{
+	uaudio_dbg("Device in use: card_num=%d, num_intf=%d",
+		card_num, subs->dev->config->desc.bNumInterfaces);
+	if (!uadev[card_num].disconnect_wq_init) {
+		init_waitqueue_head(&uadev[card_num].disconnect_wq);
+		uadev[card_num].disconnect_wq_init = true;
+	}
+	uadev[card_num].num_intf =
+		subs->dev->config->desc.bNumInterfaces;
+	uadev[card_num].info = kcalloc(uadev[card_num].num_intf,
+		sizeof(struct intf_info), GFP_KERNEL);
+	if (!uadev[card_num].info)
+		return -ENOMEM;
+
+	mutex_lock(&chip->mutex);
+	uadev[card_num].udev = subs->dev;
+	mutex_unlock(&chip->mutex);
+	return 0;
 }
 
 static void uaudio_dev_intf_cleanup(struct usb_device *udev,
@@ -960,7 +980,9 @@ static void uaudio_dev_cleanup(struct uaudio_dev *dev)
 static void uaudio_connect(struct snd_usb_audio *chip)
 {
 	struct xhci_sideband *sb;
-
+	static uint32_t platform_id = HARDWARE_PROJECT_UNKNOWN;
+	if(platform_id == HARDWARE_PROJECT_UNKNOWN)
+		platform_id = get_hw_version_platform();
 	if (chip->card->number >= SNDRV_CARDS) {
 		uaudio_err("Invalid card number\n");
 		return;
@@ -972,6 +994,11 @@ static void uaudio_connect(struct snd_usb_audio *chip)
 
 	uadev[chip->card->number].chip = chip;
 	uadev[chip->card->number].sb = sb;
+	if (platform_id == HARDWARE_PROJECT_O9 || platform_id == HARDWARE_PROJECT_O8) {
+		uaudio_info("set QUIRK_FLAG_CTL_MSG_DELAY_5M");
+		uadev[chip->card->number].chip->quirk_flags |= QUIRK_FLAG_CTL_MSG_DELAY_5M;
+	} else
+		uadev[chip->card->number].chip->quirk_flags |= QUIRK_FLAG_CTL_MSG_DELAY_1M;
 }
 
 static void uaudio_disconnect(struct snd_usb_audio *chip)
@@ -1266,6 +1293,7 @@ static int enable_audio_stream(struct snd_usb_substream *subs,
 	if (atomic_read(&chip->shutdown)) {
 		uaudio_err("chip already shutdown\n");
 		ret = -ENODEV;
+		return ret;
 	} else {
 		ret = snd_usb_lock_shutdown(chip);
 		if (ret < 0)
@@ -1333,17 +1361,17 @@ static int check_valid_request(struct qmi_uaudio_stream_req_msg_v01 *req_msg,
 	}
 
 	subs = find_substream(pcm_card_num, pcm_dev_num, direction);
-
-	if (!subs) {
-		uaudio_err("invalid substream\n");
-		return -EFAULT;
-	}
-
 	chip = uadev[pcm_card_num].chip;
-	if (!subs || !chip || atomic_read(&chip->shutdown)) {
+
+	if (!chip || atomic_read(&chip->shutdown)) {
 		uaudio_err("can't find substream for card# %u, dev# %u dir%u\n",
 				pcm_card_num, pcm_dev_num, direction);
 		return -ENODEV;
+	}
+
+	if (!subs) {
+		uaudio_err("invalid substream");
+		return -EFAULT;
 	}
 
 	*info_idx = info_idx_from_ifnum(pcm_card_num, subs->cur_audiofmt ?
